@@ -15,3 +15,5 @@ yarn-error.log*
 *.py[cod]
 
 .vite/
+
+ml/*.pkl
