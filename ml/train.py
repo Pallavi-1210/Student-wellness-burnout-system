@@ -98,8 +98,9 @@ print(classification_report(y_test, y_pred))
 
 # Step 12: Save Model and Encoders
 
-joblib.dump(model, "burnout_model.pkl")
+joblib.dump(model, "burnout_model.pkl", compress=3)
 joblib.dump(gender_encoder, "gender_encoder.pkl")
 joblib.dump(risk_encoder, "risk_encoder.pkl")
 
 print("\nModel and Encoders Saved Successfully!")
+print(X.columns.tolist())
