@@ -23,7 +23,8 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.11.2",
     "nodemailer": "^10.1.1",
-    "python-shell": "^5.0.0"
+    "python-shell": "^5.0.0",
+    "resend": "^6.35.0"
   },
   "optionalDependencies": {
     "win-ca": "^3.5.1"

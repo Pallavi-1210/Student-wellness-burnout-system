@@ -1,27 +1,65 @@
 const fs = require("fs");
 const path = require("path");
+const { Resend } = require("resend");
 const nodemailer = require("nodemailer");
 
 // Ensure environment variables are loaded
 require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
-// Cached list of trusted Root Certificate Authorities from OS / environment
+// ---------------------------------------------------------------------------
+// Testing & Client Overrides (Dependency Injection)
+// ---------------------------------------------------------------------------
+let mockResendClient = null;
+let mockTransporter = null;
+
+const setResendClient = (client) => {
+  mockResendClient = client;
+};
+
+const setTransporter = (transporter) => {
+  mockTransporter = transporter;
+};
+
+const resetClients = () => {
+  mockResendClient = null;
+  mockTransporter = null;
+  cachedResendClient = null;
+  cachedTransporter = null;
+};
+
+// ---------------------------------------------------------------------------
+// Resend Client Initialization (HTTPS API - Port 443)
+// ---------------------------------------------------------------------------
+let cachedResendClient = null;
+
+const getResendClient = () => {
+  if (mockResendClient) {
+    return mockResendClient;
+  }
+  if (cachedResendClient) {
+    return cachedResendClient;
+  }
+
+  const apiKey = process.env.RESEND_API_KEY ? process.env.RESEND_API_KEY.trim() : "";
+  if (!apiKey) {
+    return null;
+  }
+
+  cachedResendClient = new Resend(apiKey);
+  return cachedResendClient;
+};
+
+// ---------------------------------------------------------------------------
+// Legacy SMTP Transporter (Fallback for local development)
+// ---------------------------------------------------------------------------
 let trustedCAs = [];
 
-/**
- * Loads trusted Certificate Authorities from the OS and environment.
- * On Windows, loads system root certificates (including endpoint security/antivirus proxies)
- * so that TLS connections are authenticated securely.
- * Certificate verification remains strictly enabled (rejectUnauthorized: true).
- */
 const loadTrustedCertificates = () => {
   if (trustedCAs.length > 0) {
     return trustedCAs;
   }
 
   const certs = [];
-
-  // 1. Load Windows OS Certificate Store on Windows systems
   if (process.platform === "win32") {
     try {
       const winCa = require("win-ca/api");
@@ -33,23 +71,18 @@ const loadTrustedCertificates = () => {
           }
         },
       });
-      if (certs.length > 0) {
-        console.log(`[EmailService] Loaded ${certs.length} trusted root certificates from Windows OS store.`);
-      }
-    } catch (err) {
-      console.warn("[EmailService] Note: Could not read Windows certificate store via win-ca:", err.message);
+    } catch {
+      // win-ca optional on non-Windows or restricted environments
     }
   }
 
-  // 2. Load custom CA file if specified in environment
   const caFilePath = process.env.EMAIL_CA_FILE || process.env.NODE_EXTRA_CA_CERTS;
   if (caFilePath && fs.existsSync(caFilePath)) {
     try {
       const customCa = fs.readFileSync(caFilePath, "utf8");
       certs.push(customCa);
-      console.log(`[EmailService] Loaded custom CA certificate from: ${caFilePath}`);
-    } catch (err) {
-      console.warn(`[EmailService] Warning: Could not read custom CA file at ${caFilePath}:`, err.message);
+    } catch {
+      // Ignored
     }
   }
 
@@ -57,19 +90,12 @@ const loadTrustedCertificates = () => {
   return trustedCAs;
 };
 
-// Initial load of trusted CAs
-loadTrustedCertificates();
-
-// Singleton pooled transporter instance
 let cachedTransporter = null;
 
-/**
- * Creates or returns the singleton Nodemailer transporter.
- * Uses persistent connection pooling (pool: true) to eliminate per-email TLS/TCP handshake latency.
- * Uses family: 4 to bypass IPv6 DNS lookup delays on Windows networks.
- * Keeps strict rejectUnauthorized: true for secure delivery.
- */
 const getTransporter = () => {
+  if (mockTransporter) {
+    return mockTransporter;
+  }
   if (cachedTransporter) {
     return cachedTransporter;
   }
@@ -82,7 +108,6 @@ const getTransporter = () => {
   const secure = process.env.EMAIL_SECURE !== undefined ? process.env.EMAIL_SECURE === "true" : port === 465;
 
   const user = rawUser ? rawUser.trim() : "";
-  // Normalize App Password: remove spaces only; preserve all characters
   const pass = rawPass ? String(rawPass).replace(/\s+/g, "") : "";
 
   if (!user || !pass) {
@@ -90,9 +115,7 @@ const getTransporter = () => {
   }
 
   const caList = loadTrustedCertificates();
-  const tlsOptions = {
-    rejectUnauthorized: true,
-  };
+  const tlsOptions = { rejectUnauthorized: true };
   if (caList.length > 0) {
     tlsOptions.ca = caList;
   }
@@ -100,30 +123,21 @@ const getTransporter = () => {
   const isGmail = service === "gmail" || host === "smtp.gmail.com" || (!host && user.endsWith("@gmail.com"));
 
   const transportConfig = {
-    pool: true, // Keep connection open for fast subsequent deliveries
+    pool: true,
     host: isGmail ? "smtp.gmail.com" : host,
     port: isGmail ? 465 : port,
     secure: isGmail ? true : secure,
-    auth: {
-      user,
-      pass,
-    },
+    auth: { user, pass },
     tls: tlsOptions,
-    family: 4, // Force IPv4 to eliminate IPv6 DNS resolution fallback stalls
-    maxConnections: 3,
-    maxMessages: 100,
-    connectionTimeout: 10000,
-    greetingTimeout: 5000,
-    socketTimeout: 15000,
+    family: 4,
+    connectionTimeout: 8000,
+    socketTimeout: 10000,
   };
 
   cachedTransporter = nodemailer.createTransport(transportConfig);
   return cachedTransporter;
 };
 
-/**
- * Diagnostic helper to verify SMTP transporter connection and credentials
- */
 const verifyTransporter = async () => {
   const transporter = getTransporter();
   if (!transporter) {
@@ -136,34 +150,64 @@ const verifyTransporter = async () => {
     return {
       success: false,
       code: error.code,
-      responseCode: error.responseCode,
       message: error.message,
     };
   }
 };
 
-/**
- * Pre-warms the SMTP connection pool in the background on startup
- */
+// ---------------------------------------------------------------------------
+// Startup Diagnostic & Pre-warm
+// ---------------------------------------------------------------------------
 const initializeEmailService = async () => {
-  const transporter = getTransporter();
-  if (!transporter) {
-    console.warn("[EmailService] Transporter credentials not configured.");
-    return false;
-  }
-  try {
-    await transporter.verify();
-    console.log("[EmailService] SMTP connection pool verified and pre-warmed for instant delivery.");
+  // Log provider selection clearly so Render logs show the active email path at startup.
+  // API key value is never logged — only its presence.
+  const resendKeyPresent = !!(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim());
+  const smtpPresent = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  console.log(
+    `[EmailService] Startup: RESEND_API_KEY=${resendKeyPresent ? "SET" : "NOT SET"}, SMTP credentials=${smtpPresent ? "SET" : "NOT SET"}`
+  );
+
+  const resendClient = getResendClient();
+  if (resendClient) {
+    const rawKey = process.env.RESEND_API_KEY || "";
+    if (rawKey && !rawKey.startsWith("re_") && !mockResendClient) {
+      console.warn(
+        "[EmailService] Warning: RESEND_API_KEY does not start with the expected 're_' prefix. " +
+          "Verify the key was copied correctly from the Resend dashboard (no surrounding quotes)."
+      );
+    }
+    console.log("[EmailService] Provider: Resend HTTPS API (port 443). OTP emails bypass Render SMTP block.");
     return true;
-  } catch (err) {
-    console.warn(`[EmailService] Background warmup notice: ${err.message}`);
-    return false;
   }
+
+  const transporter = getTransporter();
+  if (transporter) {
+    console.warn(
+      "[EmailService] Provider: Legacy SMTP (local fallback). " +
+        "WARNING — Render Free tier blocks outbound SMTP (ports 465/587). " +
+        "Set RESEND_API_KEY to fix ETIMEDOUT errors on Render."
+    );
+    try {
+      await transporter.verify();
+      console.log("[EmailService] Local SMTP connection verified successfully.");
+      return true;
+    } catch (err) {
+      console.warn(`[EmailService] SMTP verification failed: ${err.message}`);
+      return false;
+    }
+  }
+
+  console.warn(
+    "[EmailService] WARNING: No email provider configured. " +
+      "RESEND_API_KEY is not set and SMTP credentials are missing. " +
+      "OTP emails will fail until RESEND_API_KEY is added to environment variables."
+  );
+  return false;
 };
 
-/**
- * Generates modern, accessible HTML email template for student OTP verification
- */
+// ---------------------------------------------------------------------------
+// HTML Email Template
+// ---------------------------------------------------------------------------
 const generateEmailTemplate = (otp, expiryMinutes) => {
   return `
   <!DOCTYPE html>
@@ -204,91 +248,141 @@ const generateEmailTemplate = (otp, expiryMinutes) => {
   `;
 };
 
-/**
- * Sends OTP verification email strictly to user's registered email.
- * Never logs actual OTP to backend logs or console.
- * Never returns actual OTP in return objects.
- */
+// ---------------------------------------------------------------------------
+// Primary OTP Delivery Function
+// ---------------------------------------------------------------------------
 const sendOtpEmail = async ({ toEmail, otp, expiryMinutes = 10 }) => {
+  if (!toEmail || typeof toEmail !== "string") {
+    throw new Error("Recipient email address is required.");
+  }
+  if (!otp) {
+    throw new Error("OTP code is required.");
+  }
+
+  // Log which provider will handle this dispatch. Never log the OTP, key, or password.
+  const resendConfigured = !!(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim());
+  const smtpConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  console.log(
+    `[EmailService] sendOtpEmail → to=${toEmail}, provider=${
+      resendConfigured ? "resend_https_api" : smtpConfigured ? "smtp_fallback" : "none"
+    }`
+  );
+
+  const subject = `Your Student Wellness Verification Code: ${otp}`;
+  const textContent = `Your Student Wellness System verification code is: ${otp}. It will expire in ${expiryMinutes} minutes.`;
+  const htmlContent = generateEmailTemplate(otp, expiryMinutes);
+
+  // 1. Try Resend HTTPS API (Port 443) — Primary & cloud-ready.
+  //    If RESEND_API_KEY is set and Resend returns an error, we throw immediately
+  //    and do NOT fall back to SMTP. SMTP will time out on Render.
+  const resendClient = getResendClient();
+  if (resendClient) {
+    let fromAddress = process.env.EMAIL_FROM ? process.env.EMAIL_FROM.trim() : "";
+
+    // If EMAIL_FROM is omitted, empty, or contains an unverified @gmail.com address with Resend,
+    // fallback to Resend's verified test sender to avoid domain rejection.
+    if (!fromAddress || /@gmail\.com/i.test(fromAddress)) {
+      if (fromAddress && /@gmail\.com/i.test(fromAddress)) {
+        console.warn(
+          "[EmailService] Notice: Resend does not allow sending from unverified @gmail.com addresses. Using 'Student Wellness System <onboarding@resend.dev>'."
+        );
+      }
+      fromAddress = "Student Wellness System <onboarding@resend.dev>";
+    }
+
+    try {
+      const { data, error } = await resendClient.emails.send({
+        from: fromAddress,
+        to: toEmail,
+        subject,
+        text: textContent,
+        html: htmlContent,
+      });
+
+      if (error) {
+        console.error(`[EmailService] Resend API rejected email to ${toEmail}:`, error.message);
+
+        // Friendly explanation for Resend domain limitation on test accounts
+        if (
+          error.message &&
+          (error.message.includes("testing emails") || error.message.includes("verify your domain"))
+        ) {
+          throw new Error(
+            `Resend Free Tier notice: While using 'onboarding@resend.dev', you can only send test emails to your Resend account email address. To send to all students, add and verify a custom domain in your Resend dashboard.`
+          );
+        }
+
+        if (error.message && error.message.includes("API key")) {
+          throw new Error("Invalid RESEND_API_KEY. Please verify your API key in the environment variables.");
+        }
+
+        throw new Error(`Email delivery failed: ${error.message}`);
+      }
+
+      const messageId = data && data.id ? data.id : "resend_ok";
+      console.log(`[EmailService] OTP email sent successfully to ${toEmail} via Resend HTTPS API. ID: ${messageId}`);
+      return { sent: true, mode: "resend_api", messageId };
+    } catch (apiErr) {
+      console.error(`[EmailService] Resend dispatch error for ${toEmail}:`, apiErr.message);
+      throw apiErr;
+    }
+  }
+
+  // 2. Legacy SMTP Fallback (For local offline development)
   const transporter = getTransporter();
-  const rawUser = process.env.EMAIL_USER;
-  const user = rawUser ? rawUser.trim() : "";
+  if (transporter) {
+    const rawUser = process.env.EMAIL_USER;
+    const user = rawUser ? rawUser.trim() : "";
+    const fromAddress =
+      process.env.EMAIL_FROM && process.env.EMAIL_FROM.includes(user)
+        ? process.env.EMAIL_FROM
+        : `"Student Wellness System" <${user || "no-reply@studentwellness.edu"}>`;
 
-  // Ensure From header aligns with authenticated user for optimal deliverability
-  const fromAddress =
-    process.env.EMAIL_FROM && process.env.EMAIL_FROM.includes(user)
-      ? process.env.EMAIL_FROM
-      : `"Student Wellness System" <${user || "no-reply@studentwellness.edu"}>`;
+    const mailOptions = {
+      from: fromAddress,
+      to: toEmail,
+      subject,
+      text: textContent,
+      html: htmlContent,
+      priority: "high",
+    };
 
-  if (!transporter) {
-    console.error(`[EmailService] Email sending failed: EMAIL_USER or EMAIL_PASS not configured.`);
-    throw new Error("Email service is not configured. Unable to send verification email.");
+    try {
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`[EmailService] OTP email sent via SMTP to ${toEmail}. MessageId: ${info.messageId}`);
+      return { sent: true, mode: "legacy_smtp", messageId: info.messageId };
+    } catch (err) {
+      console.error(`[EmailService] SMTP delivery failed to ${toEmail}:`, err.message);
+
+      if (err.code === "ETIMEDOUT" || err.code === "ESOCKET") {
+        throw new Error(
+          "SMTP network connection error (ETIMEDOUT): Outbound SMTP ports 465/587 are blocked on cloud hosts like Render Free. Please configure RESEND_API_KEY in your environment variables to send emails via HTTPS (Port 443)."
+        );
+      }
+
+      if (err.code === "EAUTH" || err.responseCode === 535) {
+        throw new Error("SMTP Authentication failed. Please verify EMAIL_USER and EMAIL_PASS.");
+      }
+
+      throw new Error(`Unable to deliver verification email: ${err.message}`);
+    }
   }
 
-  const mailOptions = {
-    from: fromAddress,
-    to: toEmail,
-    subject: `Your Student Wellness Verification Code: ${otp}`,
-    text: `Your Student Wellness System verification code is: ${otp}. It will expire in ${expiryMinutes} minutes.`,
-    html: generateEmailTemplate(otp, expiryMinutes),
-    priority: "high",
-    headers: {
-      "X-Priority": "1",
-      "X-MSMail-Priority": "High",
-      "Importance": "high",
-    },
-  };
-
-  try {
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`[EmailService] OTP email sent successfully to ${toEmail}. MessageId: ${info.messageId}`);
-    return { sent: true, mode: "live_smtp", messageId: info.messageId };
-  } catch (err) {
-    console.error(`[EmailService] Failed to send email to ${toEmail}: ${err.message}`);
-
-    // Gmail authentication error
-    const isAuthError =
-      err.code === "EAUTH" ||
-      err.responseCode === 535 ||
-      (typeof err.message === "string" && (err.message.includes("535") || err.message.includes("BadCredentials")));
-
-    if (isAuthError) {
-      throw new Error(
-        "Gmail SMTP Authentication failed. Please verify the Google App Password configured in EMAIL_PASS."
-      );
-    }
-
-    // TLS certificate errors
-    const isCertError =
-      err.code === "SELF_SIGNED_CERT_IN_CHAIN" ||
-      err.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" ||
-      err.code === "CERT_HAS_EXPIRED" ||
-      (typeof err.message === "string" && err.message.toLowerCase().includes("certificate"));
-
-    if (isCertError) {
-      throw new Error("Unable to verify secure email certificate. Please check network certificate configuration.");
-    }
-
-    // Network connection errors
-    const isNetworkError =
-      err.code === "ECONNREFUSED" ||
-      err.code === "ETIMEDOUT" ||
-      err.code === "ENOTFOUND" ||
-      err.code === "ESOCKET" ||
-      err.code === "ECONNRESET";
-
-    if (isNetworkError) {
-      throw new Error(`SMTP network connection error (${err.code}): Unable to reach email server.`);
-    }
-
-    throw new Error(`Unable to deliver verification email: ${err.message}`);
-  }
+  // 3. Neither provider configured
+  console.error("[EmailService] Email dispatch failed: Neither RESEND_API_KEY nor SMTP credentials configured.");
+  throw new Error(
+    "Email service is not configured. Please set RESEND_API_KEY in your environment variables to enable email delivery."
+  );
 };
 
 module.exports = {
   sendOtpEmail,
+  generateEmailTemplate,
   createTransporter: getTransporter,
   verifyTransporter,
   initializeEmailService,
   loadTrustedCertificates,
+  setResendClient,
+  setTransporter,
+  resetClients,
 };

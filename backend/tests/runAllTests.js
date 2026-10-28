@@ -22,6 +22,12 @@ const { runModelPrediction, REQUIRED_FIELDS } = require("../controllers/predicti
 const User = require("../models/User");
 const Otp = require("../models/Otp");
 const Assessment = require("../models/Assessment");
+const {
+  sendOtpEmail,
+  generateEmailTemplate,
+  setResendClient,
+  resetClients,
+} = require("../utils/emailService");
 
 let totalTests = 0;
 let passedTests = 0;
@@ -42,15 +48,23 @@ async function runTest(testName, fn) {
 }
 
 // Helper for testing HTTP requests against Express app
-function makeRequest(server, path, method = "GET") {
+function makeRequest(server, path, method = "GET", postData = null) {
   return new Promise((resolve, reject) => {
     const addr = server.address();
+    const headers = {};
+    let payload = null;
+    if (postData) {
+      payload = typeof postData === "string" ? postData : JSON.stringify(postData);
+      headers["Content-Type"] = "application/json";
+      headers["Content-Length"] = Buffer.byteLength(payload);
+    }
     const req = http.request(
       {
         host: "127.0.0.1",
         port: addr.port,
         path,
         method,
+        headers,
       },
       (res) => {
         let body = "";
@@ -66,6 +80,9 @@ function makeRequest(server, path, method = "GET") {
       }
     );
     req.on("error", reject);
+    if (payload) {
+      req.write(payload);
+    }
     req.end();
   });
 }
@@ -266,7 +283,147 @@ async function main() {
       assert.strictEqual(res.body.success, false);
       assert(res.body.error.includes("Bearer token required"), `Unexpected message: ${res.body.error}`);
     });
+
+    // -----------------------------------------------------------------
+    // 5. Email Delivery & OTP Dispatch Pipeline (Mocked - No real OTPs sent)
+    // -----------------------------------------------------------------
+    console.log("\n5. Email Delivery & OTP Authentication Pipeline:");
+
+    await runTest("Email: Template generation contains OTP code and expiration", () => {
+      const template = generateEmailTemplate("987654", 10);
+      assert(typeof template === "string", "Template should be a string");
+      assert(template.includes("987654"), "Template missing OTP code");
+      assert(template.includes("10 minutes"), "Template missing expiry time");
+    });
+
+    await runTest("Email: Successfully dispatches OTP via Resend HTTPS API (Mocked)", async () => {
+      let capturedPayload = null;
+      setResendClient({
+        emails: {
+          send: async (payload) => {
+            capturedPayload = payload;
+            return { data: { id: "mock_resend_msg_test_123" }, error: null };
+          },
+        },
+      });
+
+      const result = await sendOtpEmail({
+        toEmail: "student@university.edu",
+        otp: "849201",
+        expiryMinutes: 10,
+      });
+
+      assert.strictEqual(result.sent, true);
+      assert.strictEqual(result.mode, "resend_api");
+      assert.strictEqual(result.messageId, "mock_resend_msg_test_123");
+      assert.strictEqual(capturedPayload.to, "student@university.edu");
+      assert(capturedPayload.subject.includes("849201"));
+    });
+
+    await runTest("Email: Handles Resend API error cleanly without crash (Mocked)", async () => {
+      setResendClient({
+        emails: {
+          send: async () => {
+            return {
+              data: null,
+              error: { message: "Invalid API key provided", name: "validation_error" },
+            };
+          },
+        },
+      });
+
+      let caught = false;
+      try {
+        await sendOtpEmail({
+          toEmail: "student@university.edu",
+          otp: "123456",
+        });
+      } catch (err) {
+        caught = true;
+        assert(err.message.includes("Invalid RESEND_API_KEY"), `Unexpected message: ${err.message}`);
+      }
+      assert.strictEqual(caught, true, "Expected sendOtpEmail to throw on API error");
+    });
+
+    await runTest("Email: Translates Resend free-tier domain restriction into friendly notice (Mocked)", async () => {
+      setResendClient({
+        emails: {
+          send: async () => {
+            return {
+              data: null,
+              error: {
+                message:
+                  "You can only send testing emails to your own email address. To send emails to other addresses, you need to verify your domain.",
+              },
+            };
+          },
+        },
+      });
+
+      let caught = false;
+      try {
+        await sendOtpEmail({
+          toEmail: "other_student@university.edu",
+          otp: "654321",
+        });
+      } catch (err) {
+        caught = true;
+        assert(err.message.includes("Resend Free Tier notice"), `Unexpected error: ${err.message}`);
+      }
+      assert.strictEqual(caught, true, "Expected domain limitation notice to be caught and translated");
+    });
+
+    await runTest("Email: Rejects unconfigured service with clear instructions to set RESEND_API_KEY", async () => {
+      resetClients();
+      const originalResendKey = process.env.RESEND_API_KEY;
+      const originalUser = process.env.EMAIL_USER;
+      const originalPass = process.env.EMAIL_PASS;
+      delete process.env.RESEND_API_KEY;
+      delete process.env.EMAIL_USER;
+      delete process.env.EMAIL_PASS;
+
+      let caught = false;
+      try {
+        await sendOtpEmail({
+          toEmail: "student@university.edu",
+          otp: "112233",
+        });
+      } catch (err) {
+        caught = true;
+        assert(err.message.includes("Please set RESEND_API_KEY"), `Unexpected error: ${err.message}`);
+      } finally {
+        if (originalResendKey) process.env.RESEND_API_KEY = originalResendKey;
+        if (originalUser) process.env.EMAIL_USER = originalUser;
+        if (originalPass) process.env.EMAIL_PASS = originalPass;
+      }
+      assert.strictEqual(caught, true, "Expected unconfigured service to throw");
+    });
+
+    await runTest("HTTP POST /api/auth/send-otp: Rejects missing email payload with 400 Bad Request", async () => {
+      const res = await makeRequest(testServer, "/api/auth/send-otp", "POST", {});
+      assert.strictEqual(res.statusCode, 400);
+      assert.strictEqual(res.body.success, false);
+      assert(res.body.error.includes("email address is required"));
+    });
+
+    await runTest("HTTP POST /api/auth/send-otp: Rejects invalid email syntax with 400 Bad Request", async () => {
+      const res = await makeRequest(testServer, "/api/auth/send-otp", "POST", { email: "not-an-email" });
+      assert.strictEqual(res.statusCode, 400);
+      assert.strictEqual(res.body.success, false);
+      assert(res.body.error.includes("valid email address"));
+    });
+
+    await runTest("HTTP POST /api/auth/verify-otp: Rejects malformed OTP code with 400 Bad Request", async () => {
+      const res = await makeRequest(testServer, "/api/auth/verify-otp", "POST", {
+        email: "student@university.edu",
+        otp: "123",
+      });
+      assert.strictEqual(res.statusCode, 400);
+      assert.strictEqual(res.body.success, false);
+      assert(res.body.error.includes("must be exactly 6 digits"));
+    });
   } finally {
+    resetClients();
     testServer.close();
   }
 
