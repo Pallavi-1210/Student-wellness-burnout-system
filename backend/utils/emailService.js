@@ -1,6 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const { Resend } = require("resend");
 const nodemailer = require("nodemailer");
 
 // Ensure environment variables are loaded
@@ -9,48 +8,20 @@ require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 // ---------------------------------------------------------------------------
 // Testing & Client Overrides (Dependency Injection)
 // ---------------------------------------------------------------------------
-let mockResendClient = null;
 let mockTransporter = null;
-
-const setResendClient = (client) => {
-  mockResendClient = client;
-};
 
 const setTransporter = (transporter) => {
   mockTransporter = transporter;
 };
 
 const resetClients = () => {
-  mockResendClient = null;
   mockTransporter = null;
-  cachedResendClient = null;
   cachedTransporter = null;
 };
 
 // ---------------------------------------------------------------------------
-// Resend Client Initialization (HTTPS API - Port 443)
-// ---------------------------------------------------------------------------
-let cachedResendClient = null;
-
-const getResendClient = () => {
-  if (mockResendClient) {
-    return mockResendClient;
-  }
-  if (cachedResendClient) {
-    return cachedResendClient;
-  }
-
-  const apiKey = process.env.RESEND_API_KEY ? process.env.RESEND_API_KEY.trim() : "";
-  if (!apiKey) {
-    return null;
-  }
-
-  cachedResendClient = new Resend(apiKey);
-  return cachedResendClient;
-};
-
-// ---------------------------------------------------------------------------
-// Legacy SMTP Transporter (Fallback for local development)
+// SMTP Transporter — reads ALL connection parameters from environment variables.
+// No provider-specific host, port, or TLS setting is hardcoded here.
 // ---------------------------------------------------------------------------
 let trustedCAs = [];
 
@@ -72,7 +43,7 @@ const loadTrustedCertificates = () => {
         },
       });
     } catch {
-      // win-ca optional on non-Windows or restricted environments
+      // win-ca is optional — not available on Linux/Render
     }
   }
 
@@ -100,17 +71,18 @@ const getTransporter = () => {
     return cachedTransporter;
   }
 
-  const rawUser = process.env.EMAIL_USER;
-  const rawPass = process.env.EMAIL_PASS;
-  const service = process.env.EMAIL_SERVICE ? process.env.EMAIL_SERVICE.trim().toLowerCase() : "";
-  const host = process.env.EMAIL_HOST;
-  const port = parseInt(process.env.EMAIL_PORT, 10) || 465;
-  const secure = process.env.EMAIL_SECURE !== undefined ? process.env.EMAIL_SECURE === "true" : port === 465;
+  // All SMTP parameters come exclusively from environment variables.
+  // There is no isGmail branch or any provider-specific override.
+  const host = process.env.EMAIL_HOST ? process.env.EMAIL_HOST.trim() : "";
+  const user = process.env.EMAIL_USER ? process.env.EMAIL_USER.trim() : "";
+  const pass = process.env.EMAIL_PASS ? String(process.env.EMAIL_PASS).replace(/\s+/g, "") : "";
+  // Default port 587 (Brevo STARTTLS). Override with EMAIL_PORT=2525 if 587 is blocked.
+  const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
+  // EMAIL_SECURE=false for ports 587/2525 (STARTTLS). Set "true" only for port 465 (SSL).
+  const secure = process.env.EMAIL_SECURE === "true";
 
-  const user = rawUser ? rawUser.trim() : "";
-  const pass = rawPass ? String(rawPass).replace(/\s+/g, "") : "";
-
-  if (!user || !pass) {
+  // All three are required — return null if any are missing so callers fail safely.
+  if (!host || !user || !pass) {
     return null;
   }
 
@@ -120,18 +92,15 @@ const getTransporter = () => {
     tlsOptions.ca = caList;
   }
 
-  const isGmail = service === "gmail" || host === "smtp.gmail.com" || (!host && user.endsWith("@gmail.com"));
-
   const transportConfig = {
-    pool: true,
-    host: isGmail ? "smtp.gmail.com" : host,
-    port: isGmail ? 465 : port,
-    secure: isGmail ? true : secure,
+    host,
+    port,
+    secure,
     auth: { user, pass },
     tls: tlsOptions,
-    family: 4,
-    connectionTimeout: 8000,
-    socketTimeout: 10000,
+    family: 4,           // IPv4 only — more reliable on cloud hosts
+    connectionTimeout: 10000,
+    socketTimeout: 15000,
   };
 
   cachedTransporter = nodemailer.createTransport(transportConfig);
@@ -141,7 +110,11 @@ const getTransporter = () => {
 const verifyTransporter = async () => {
   const transporter = getTransporter();
   if (!transporter) {
-    return { success: false, error: "Transporter not initialized. Missing EMAIL_USER or EMAIL_PASS." };
+    return {
+      success: false,
+      error:
+        "SMTP transporter not configured. Set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS in environment variables.",
+    };
   }
   try {
     await transporter.verify();
@@ -156,53 +129,59 @@ const verifyTransporter = async () => {
 };
 
 // ---------------------------------------------------------------------------
-// Startup Diagnostic & Pre-warm
+// Startup Diagnostic
 // ---------------------------------------------------------------------------
 const initializeEmailService = async () => {
-  // Log provider selection clearly so Render logs show the active email path at startup.
-  // API key value is never logged — only its presence.
-  const resendKeyPresent = !!(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim());
-  const smtpPresent = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
-  console.log(
-    `[EmailService] Startup: RESEND_API_KEY=${resendKeyPresent ? "SET" : "NOT SET"}, SMTP credentials=${smtpPresent ? "SET" : "NOT SET"}`
-  );
+  // EMAIL_HOST and EMAIL_PORT are not secrets — safe to log.
+  // EMAIL_USER and EMAIL_PASS values are never logged.
+  const host = process.env.EMAIL_HOST ? process.env.EMAIL_HOST.trim() : "";
+  const port = parseInt(process.env.EMAIL_PORT, 10) || 587;
+  const secure = process.env.EMAIL_SECURE === "true";
+  const userPresent = !!(process.env.EMAIL_USER && process.env.EMAIL_USER.trim());
+  const passPresent = !!(process.env.EMAIL_PASS && process.env.EMAIL_PASS.trim());
 
-  const resendClient = getResendClient();
-  if (resendClient) {
-    const rawKey = process.env.RESEND_API_KEY || "";
-    if (rawKey && !rawKey.startsWith("re_") && !mockResendClient) {
-      console.warn(
-        "[EmailService] Warning: RESEND_API_KEY does not start with the expected 're_' prefix. " +
-          "Verify the key was copied correctly from the Resend dashboard (no surrounding quotes)."
-      );
-    }
-    console.log("[EmailService] Provider: Resend HTTPS API (port 443). OTP emails bypass Render SMTP block.");
-    return true;
-  }
+  console.log(
+    `[EmailService] Startup: EMAIL_HOST=${host || "NOT SET"}, EMAIL_PORT=${port}, ` +
+      `secure=${secure}, EMAIL_USER=${userPresent ? "SET" : "NOT SET"}, EMAIL_PASS=${passPresent ? "SET" : "NOT SET"}`
+  );
 
   const transporter = getTransporter();
-  if (transporter) {
+
+  if (!transporter) {
     console.warn(
-      "[EmailService] Provider: Legacy SMTP (local fallback). " +
-        "WARNING — Render Free tier blocks outbound SMTP (ports 465/587). " +
-        "Set RESEND_API_KEY to fix ETIMEDOUT errors on Render."
+      "[EmailService] WARNING: SMTP transporter not configured. " +
+        "OTP emails will fail. Set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS in environment variables."
     );
-    try {
-      await transporter.verify();
-      console.log("[EmailService] Local SMTP connection verified successfully.");
-      return true;
-    } catch (err) {
-      console.warn(`[EmailService] SMTP verification failed: ${err.message}`);
-      return false;
-    }
+    return false;
   }
 
-  console.warn(
-    "[EmailService] WARNING: No email provider configured. " +
-      "RESEND_API_KEY is not set and SMTP credentials are missing. " +
-      "OTP emails will fail until RESEND_API_KEY is added to environment variables."
-  );
-  return false;
+  console.log(`[EmailService] Provider: Brevo SMTP (${host}:${port}, secure=${secure}).`);
+
+  // Port 587 is in Render Free's explicitly blocked list. Warn proactively.
+  if (port === 587 || port === 465) {
+    console.warn(
+      `[EmailService] ⚠ Port ${port} is listed among Render Free tier's blocked outbound SMTP ports ` +
+        "(25, 465, 587). If connection times out on Render, set EMAIL_PORT=2525 and redeploy. " +
+        "Port 2525 is not in the blocked list and is supported by Brevo."
+    );
+  }
+
+  try {
+    await transporter.verify();
+    console.log("[EmailService] SMTP connection verified successfully.");
+    return true;
+  } catch (err) {
+    if (err.code === "ETIMEDOUT" || err.code === "ESOCKET") {
+      console.warn(
+        `[EmailService] SMTP verification timed out (${err.code}): cannot reach ${host}:${port}. ` +
+          "This port is likely blocked by Render Free tier. Set EMAIL_PORT=2525 and redeploy."
+      );
+    } else {
+      console.warn(`[EmailService] SMTP verification failed: ${err.message}`);
+    }
+    // Return false but do NOT crash — the server still starts; email will fail at send time.
+    return false;
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -259,120 +238,77 @@ const sendOtpEmail = async ({ toEmail, otp, expiryMinutes = 10 }) => {
     throw new Error("OTP code is required.");
   }
 
-  // Log which provider will handle this dispatch. Never log the OTP, key, or password.
-  const resendConfigured = !!(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim());
-  const smtpConfigured = !!(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  // Log which provider will handle this dispatch.
+  // The OTP value, EMAIL_PASS, and any API keys are never logged.
+  const smtpConfigured = !!(
+    process.env.EMAIL_HOST &&
+    process.env.EMAIL_HOST.trim() &&
+    process.env.EMAIL_USER &&
+    process.env.EMAIL_PASS
+  );
   console.log(
-    `[EmailService] sendOtpEmail → to=${toEmail}, provider=${
-      resendConfigured ? "resend_https_api" : smtpConfigured ? "smtp_fallback" : "none"
-    }`
+    `[EmailService] sendOtpEmail → to=${toEmail}, provider=${smtpConfigured ? "brevo_smtp" : "none"}`
   );
 
   const subject = `Your Student Wellness Verification Code: ${otp}`;
   const textContent = `Your Student Wellness System verification code is: ${otp}. It will expire in ${expiryMinutes} minutes.`;
   const htmlContent = generateEmailTemplate(otp, expiryMinutes);
 
-  // 1. Try Resend HTTPS API (Port 443) — Primary & cloud-ready.
-  //    If RESEND_API_KEY is set and Resend returns an error, we throw immediately
-  //    and do NOT fall back to SMTP. SMTP will time out on Render.
-  const resendClient = getResendClient();
-  if (resendClient) {
-    let fromAddress = process.env.EMAIL_FROM ? process.env.EMAIL_FROM.trim() : "";
-
-    // If EMAIL_FROM is omitted, empty, or contains an unverified @gmail.com address with Resend,
-    // fallback to Resend's verified test sender to avoid domain rejection.
-    if (!fromAddress || /@gmail\.com/i.test(fromAddress)) {
-      if (fromAddress && /@gmail\.com/i.test(fromAddress)) {
-        console.warn(
-          "[EmailService] Notice: Resend does not allow sending from unverified @gmail.com addresses. Using 'Student Wellness System <onboarding@resend.dev>'."
-        );
-      }
-      fromAddress = "Student Wellness System <onboarding@resend.dev>";
-    }
-
-    try {
-      const { data, error } = await resendClient.emails.send({
-        from: fromAddress,
-        to: toEmail,
-        subject,
-        text: textContent,
-        html: htmlContent,
-      });
-
-      if (error) {
-        console.error(`[EmailService] Resend API rejected email to ${toEmail}:`, error.message);
-
-        // Friendly explanation for Resend domain limitation on test accounts
-        if (
-          error.message &&
-          (error.message.includes("testing emails") || error.message.includes("verify your domain"))
-        ) {
-          throw new Error(
-            `Resend Free Tier notice: While using 'onboarding@resend.dev', you can only send test emails to your Resend account email address. To send to all students, add and verify a custom domain in your Resend dashboard.`
-          );
-        }
-
-        if (error.message && error.message.includes("API key")) {
-          throw new Error("Invalid RESEND_API_KEY. Please verify your API key in the environment variables.");
-        }
-
-        throw new Error(`Email delivery failed: ${error.message}`);
-      }
-
-      const messageId = data && data.id ? data.id : "resend_ok";
-      console.log(`[EmailService] OTP email sent successfully to ${toEmail} via Resend HTTPS API. ID: ${messageId}`);
-      return { sent: true, mode: "resend_api", messageId };
-    } catch (apiErr) {
-      console.error(`[EmailService] Resend dispatch error for ${toEmail}:`, apiErr.message);
-      throw apiErr;
-    }
-  }
-
-  // 2. Legacy SMTP Fallback (For local offline development)
   const transporter = getTransporter();
-  if (transporter) {
-    const rawUser = process.env.EMAIL_USER;
-    const user = rawUser ? rawUser.trim() : "";
-    const fromAddress =
-      process.env.EMAIL_FROM && process.env.EMAIL_FROM.includes(user)
-        ? process.env.EMAIL_FROM
-        : `"Student Wellness System" <${user || "no-reply@studentwellness.edu"}>`;
 
-    const mailOptions = {
-      from: fromAddress,
-      to: toEmail,
-      subject,
-      text: textContent,
-      html: htmlContent,
-      priority: "high",
-    };
-
-    try {
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[EmailService] OTP email sent via SMTP to ${toEmail}. MessageId: ${info.messageId}`);
-      return { sent: true, mode: "legacy_smtp", messageId: info.messageId };
-    } catch (err) {
-      console.error(`[EmailService] SMTP delivery failed to ${toEmail}:`, err.message);
-
-      if (err.code === "ETIMEDOUT" || err.code === "ESOCKET") {
-        throw new Error(
-          "SMTP network connection error (ETIMEDOUT): Outbound SMTP ports 465/587 are blocked on cloud hosts like Render Free. Please configure RESEND_API_KEY in your environment variables to send emails via HTTPS (Port 443)."
-        );
-      }
-
-      if (err.code === "EAUTH" || err.responseCode === 535) {
-        throw new Error("SMTP Authentication failed. Please verify EMAIL_USER and EMAIL_PASS.");
-      }
-
-      throw new Error(`Unable to deliver verification email: ${err.message}`);
-    }
+  if (!transporter) {
+    console.error(
+      "[EmailService] SMTP transporter not configured. Set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS."
+    );
+    throw new Error(
+      "Email service is not configured. Set EMAIL_HOST, EMAIL_USER, and EMAIL_PASS in environment variables."
+    );
   }
 
-  // 3. Neither provider configured
-  console.error("[EmailService] Email dispatch failed: Neither RESEND_API_KEY nor SMTP credentials configured.");
-  throw new Error(
-    "Email service is not configured. Please set RESEND_API_KEY in your environment variables to enable email delivery."
-  );
+  // Build the From address from environment. Never fall back to a hardcoded address that
+  // doesn't match the verified Brevo sender, as this will cause delivery rejection.
+  const rawUser = process.env.EMAIL_USER ? process.env.EMAIL_USER.trim() : "";
+  const fromAddress = process.env.EMAIL_FROM
+    ? process.env.EMAIL_FROM.trim()
+    : `"Student Wellness System" <${rawUser}>`;
+
+  const mailOptions = {
+    from: fromAddress,
+    to: toEmail,
+    subject,
+    text: textContent,
+    html: htmlContent,
+    priority: "high",
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(
+      `[EmailService] OTP email sent via Brevo SMTP to ${toEmail}. MessageId: ${info.messageId}`
+    );
+    return { sent: true, mode: "brevo_smtp", messageId: info.messageId };
+  } catch (err) {
+    console.error(`[EmailService] SMTP delivery failed to ${toEmail}: ${err.message}`);
+
+    if (err.code === "ETIMEDOUT" || err.code === "ESOCKET") {
+      const host = process.env.EMAIL_HOST || "email server";
+      const port = process.env.EMAIL_PORT || "587";
+      throw new Error(
+        `SMTP connection timed out (${host}:${port}). ` +
+          "Port 587 is blocked on Render Free tier. " +
+          "Set EMAIL_PORT=2525 in environment variables and redeploy."
+      );
+    }
+
+    if (err.code === "EAUTH" || err.responseCode === 535) {
+      throw new Error(
+        "SMTP authentication failed. Verify EMAIL_USER (Brevo login email) and " +
+          "EMAIL_PASS (Brevo SMTP key from dashboard) in environment variables."
+      );
+    }
+
+    throw new Error(`Unable to deliver OTP email: ${err.message}`);
+  }
 };
 
 module.exports = {
@@ -382,7 +318,6 @@ module.exports = {
   verifyTransporter,
   initializeEmailService,
   loadTrustedCertificates,
-  setResendClient,
   setTransporter,
   resetClients,
 };

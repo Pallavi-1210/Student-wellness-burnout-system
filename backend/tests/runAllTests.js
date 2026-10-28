@@ -25,7 +25,7 @@ const Assessment = require("../models/Assessment");
 const {
   sendOtpEmail,
   generateEmailTemplate,
-  setResendClient,
+  setTransporter,
   resetClients,
 } = require("../utils/emailService");
 
@@ -296,14 +296,12 @@ async function main() {
       assert(template.includes("10 minutes"), "Template missing expiry time");
     });
 
-    await runTest("Email: Successfully dispatches OTP via Resend HTTPS API (Mocked)", async () => {
-      let capturedPayload = null;
-      setResendClient({
-        emails: {
-          send: async (payload) => {
-            capturedPayload = payload;
-            return { data: { id: "mock_resend_msg_test_123" }, error: null };
-          },
+    await runTest("Email: Successfully dispatches OTP via Brevo SMTP (Mocked)", async () => {
+      let capturedOptions = null;
+      setTransporter({
+        sendMail: async (options) => {
+          capturedOptions = options;
+          return { messageId: "mock_brevo_msg_test_123" };
         },
       });
 
@@ -314,21 +312,19 @@ async function main() {
       });
 
       assert.strictEqual(result.sent, true);
-      assert.strictEqual(result.mode, "resend_api");
-      assert.strictEqual(result.messageId, "mock_resend_msg_test_123");
-      assert.strictEqual(capturedPayload.to, "student@university.edu");
-      assert(capturedPayload.subject.includes("849201"));
+      assert.strictEqual(result.mode, "brevo_smtp");
+      assert.strictEqual(result.messageId, "mock_brevo_msg_test_123");
+      assert.strictEqual(capturedOptions.to, "student@university.edu");
+      assert(capturedOptions.subject.includes("849201"));
     });
 
-    await runTest("Email: Handles Resend API error cleanly without crash (Mocked)", async () => {
-      setResendClient({
-        emails: {
-          send: async () => {
-            return {
-              data: null,
-              error: { message: "Invalid API key provided", name: "validation_error" },
-            };
-          },
+    await runTest("Email: Handles SMTP authentication failure cleanly (Mocked)", async () => {
+      setTransporter({
+        sendMail: async () => {
+          const err = new Error("535 Authentication credentials invalid");
+          err.code = "EAUTH";
+          err.responseCode = 535;
+          throw err;
         },
       });
 
@@ -340,45 +336,47 @@ async function main() {
         });
       } catch (err) {
         caught = true;
-        assert(err.message.includes("Invalid RESEND_API_KEY"), `Unexpected message: ${err.message}`);
+        assert(
+          err.message.includes("authentication failed"),
+          `Unexpected message: ${err.message}`
+        );
       }
-      assert.strictEqual(caught, true, "Expected sendOtpEmail to throw on API error");
+      assert.strictEqual(caught, true, "Expected sendOtpEmail to throw on auth failure");
     });
 
-    await runTest("Email: Translates Resend free-tier domain restriction into friendly notice (Mocked)", async () => {
-      setResendClient({
-        emails: {
-          send: async () => {
-            return {
-              data: null,
-              error: {
-                message:
-                  "You can only send testing emails to your own email address. To send emails to other addresses, you need to verify your domain.",
-              },
-            };
-          },
+    await runTest("Email: Translates SMTP ETIMEDOUT into Render port-block message (Mocked)", async () => {
+      setTransporter({
+        sendMail: async () => {
+          const err = new Error("connect ETIMEDOUT");
+          err.code = "ETIMEDOUT";
+          throw err;
         },
       });
 
       let caught = false;
       try {
         await sendOtpEmail({
-          toEmail: "other_student@university.edu",
+          toEmail: "student@university.edu",
           otp: "654321",
         });
       } catch (err) {
         caught = true;
-        assert(err.message.includes("Resend Free Tier notice"), `Unexpected error: ${err.message}`);
+        assert(
+          err.message.includes("timed out") ||
+            err.message.includes("blocked") ||
+            err.message.includes("2525"),
+          `Unexpected error: ${err.message}`
+        );
       }
-      assert.strictEqual(caught, true, "Expected domain limitation notice to be caught and translated");
+      assert.strictEqual(caught, true, "Expected ETIMEDOUT to produce a Render port-block message");
     });
 
-    await runTest("Email: Rejects unconfigured service with clear instructions to set RESEND_API_KEY", async () => {
+    await runTest("Email: Rejects unconfigured service when SMTP credentials are missing", async () => {
       resetClients();
-      const originalResendKey = process.env.RESEND_API_KEY;
+      const originalHost = process.env.EMAIL_HOST;
       const originalUser = process.env.EMAIL_USER;
       const originalPass = process.env.EMAIL_PASS;
-      delete process.env.RESEND_API_KEY;
+      delete process.env.EMAIL_HOST;
       delete process.env.EMAIL_USER;
       delete process.env.EMAIL_PASS;
 
@@ -390,9 +388,12 @@ async function main() {
         });
       } catch (err) {
         caught = true;
-        assert(err.message.includes("Please set RESEND_API_KEY"), `Unexpected error: ${err.message}`);
+        assert(
+          err.message.includes("EMAIL_HOST") || err.message.includes("not configured"),
+          `Unexpected error: ${err.message}`
+        );
       } finally {
-        if (originalResendKey) process.env.RESEND_API_KEY = originalResendKey;
+        if (originalHost) process.env.EMAIL_HOST = originalHost;
         if (originalUser) process.env.EMAIL_USER = originalUser;
         if (originalPass) process.env.EMAIL_PASS = originalPass;
       }
