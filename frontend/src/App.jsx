@@ -208,6 +208,15 @@ function App() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Guard: only process submission on the final step (step 5).
+    // Without this, pressing Enter in any number input on steps 1–4 triggers
+    // native HTML form submission, which runs validateForm across all steps and
+    // incorrectly pops up "Financial stress must be between 0 and 10" while the
+    // user is still on Section 4 (because financial_stress is still empty).
+    if (currentStep !== 5) {
+      return;
+    }
+
     const error = validateForm(formData);
     if (error) {
       alert(error);
@@ -559,7 +568,18 @@ function App() {
                     </div>
                   </div>
 
-                  <form onSubmit={handleSubmit} noValidate>
+                  <form
+                    onSubmit={handleSubmit}
+                    noValidate
+                    onKeyDown={(e) => {
+                      // Prevent the Enter key from triggering implicit form submission
+                      // on steps 1–4. On step 5 the submit button is explicit (type="submit")
+                      // so Enter naturally activates it, which is the intended behaviour.
+                      if (e.key === "Enter" && currentStep !== 5) {
+                        e.preventDefault();
+                      }
+                    }}
+                  >
                     {renderCurrentStep()}
 
                     <div className="form-actions">
