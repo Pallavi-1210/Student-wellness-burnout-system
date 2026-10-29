@@ -155,12 +155,12 @@ export const validateStep = (step, formData) => {
 
   // STEP 5: Personal Wellbeing
   else if (step === 5) {
-    // Financial Stress
-    if (
-      formData.financial_stress === "" ||
-      Number(formData.financial_stress) < 0 ||
-      Number(formData.financial_stress) > 10
-    ) {
+    // Financial Stress — valid range is 0 to 10 (inclusive).
+    // IMPORTANT: We use String(value).trim() === "" to detect a truly empty
+    // input, because Number("") === 0 which would incorrectly pass the
+    // numeric range check even when the field is completely blank.
+    const fsRaw = String(formData.financial_stress).trim();
+    if (fsRaw === "" || Number(fsRaw) < 0 || Number(fsRaw) > 10) {
       stepErrors.financial_stress =
         "Financial stress must be between 0 and 10.";
     }

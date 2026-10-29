@@ -48,8 +48,8 @@ const answersSchema = new mongoose.Schema(
     stress_level: {
       type: Number,
       required: [true, "Stress level is required."],
-      min: [1, "Stress level must be between 1 and 10."],
-      max: [10, "Stress level must be between 1 and 10."],
+      min: [0, "Stress level must be between 0 and 10."],
+      max: [10, "Stress level must be between 0 and 10."],
     },
     anxiety_score: {
       type: Number,
@@ -96,14 +96,14 @@ const answersSchema = new mongoose.Schema(
     financial_stress: {
       type: Number,
       required: [true, "Financial stress is required."],
-      min: [1, "Financial stress must be between 1 and 10."],
-      max: [10, "Financial stress must be between 1 and 10."],
+      min: [0, "Financial stress must be between 0 and 10."],
+      max: [10, "Financial stress must be between 0 and 10."],
     },
     family_expectation: {
       type: Number,
       required: [true, "Family expectation is required."],
-      min: [1, "Family expectation must be between 1 and 10."],
-      max: [10, "Family expectation must be between 1 and 10."],
+      min: [0, "Family expectation must be between 0 and 10."],
+      max: [10, "Family expectation must be between 0 and 10."],
     },
   },
   { _id: false }
