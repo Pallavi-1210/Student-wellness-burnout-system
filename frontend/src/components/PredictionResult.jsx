@@ -20,6 +20,7 @@ import {
   FiArrowLeft,
   FiArrowRight,
   FiDollarSign,
+  FiPlusCircle,
 } from "react-icons/fi";
 
 function normalizeRiskLevel(prediction) {
@@ -267,6 +268,9 @@ function PredictionResult({
   onReset,
   onGoDashboard,
   onGoHistory,
+  onBackToHistory,
+  isHistoryView,
+  recordNumber,
 }) {
   // Navigation View State: 'result' | 'recommendations' | 'summary'
   const [activeView, setActiveView] = useState("result");
@@ -296,7 +300,9 @@ function PredictionResult({
         {/* Top Header Bar */}
         <div className="dashboard-top-bar">
           <div>
-            <span className="result-kicker">Assessment Complete</span>
+            <span className="result-kicker">
+              {recordNumber ? `Assessment Record #${recordNumber}` : "Assessment Complete"}
+            </span>
             <h2 className="result-main-heading">Burnout Risk Evaluation</h2>
             <div className="result-timestamp-line">
               <FiCalendar className="meta-icon" />
@@ -305,6 +311,16 @@ function PredictionResult({
           </div>
 
           <div className="result-action-buttons">
+            {onBackToHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-result-action"
+                onClick={onBackToHistory}
+                title="Return to assessment records"
+              >
+                <FiList /> All Records
+              </button>
+            )}
             {onGoDashboard && (
               <button
                 type="button"
@@ -315,7 +331,7 @@ function PredictionResult({
                 <FiBarChart2 /> Dashboard
               </button>
             )}
-            {onGoHistory && (
+            {onGoHistory && !onBackToHistory && (
               <button
                 type="button"
                 className="btn btn-secondary btn-result-action"
@@ -325,14 +341,16 @@ function PredictionResult({
                 <FiList /> View History
               </button>
             )}
-            <button
-              type="button"
-              className="btn btn-secondary btn-result-action"
-              onClick={onReset}
-              title="Take a New Assessment"
-            >
-              <FiRefreshCw /> Retake Assessment
-            </button>
+            {onReset && (
+              <button
+                type="button"
+                className={`btn ${isHistoryView ? "btn-primary" : "btn-secondary"} btn-result-action`}
+                onClick={onReset}
+                title={isHistoryView ? "Take a New Assessment" : "Take a New Assessment"}
+              >
+                {isHistoryView ? <FiPlusCircle /> : <FiRefreshCw />} {isHistoryView ? "New Assessment" : "Retake Assessment"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -484,6 +502,16 @@ function PredictionResult({
             >
               <FiList /> View Summary
             </button>
+            {onBackToHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-result-action"
+                onClick={onBackToHistory}
+                title="Return to assessment records"
+              >
+                <FiList /> All Records
+              </button>
+            )}
             {onGoDashboard && (
               <button
                 type="button"
@@ -493,13 +521,15 @@ function PredictionResult({
                 <FiBarChart2 /> Dashboard
               </button>
             )}
-            <button
-              type="button"
-              className="btn btn-secondary btn-result-action"
-              onClick={onReset}
-            >
-              <FiRefreshCw /> Retake
-            </button>
+            {onReset && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-result-action"
+                onClick={onReset}
+              >
+                {isHistoryView ? <FiPlusCircle /> : <FiRefreshCw />} {isHistoryView ? "New Assessment" : "Retake"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -537,13 +567,24 @@ function PredictionResult({
 
         {/* Bottom Page Navigation */}
         <div className="subpage-bottom-nav">
-          <button
-            type="button"
-            className="btn btn-secondary btn-bottom-action"
-            onClick={() => setActiveView("result")}
-          >
-            <FiArrowLeft /> Back to Risk Result
-          </button>
+          <div className="bottom-left-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-bottom-action"
+              onClick={() => setActiveView("result")}
+            >
+              <FiArrowLeft /> Back to Risk Result
+            </button>
+            {onBackToHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-bottom-action"
+                onClick={onBackToHistory}
+              >
+                <FiList /> All Records
+              </button>
+            )}
+          </div>
           <div className="bottom-right-actions">
             <button
               type="button"
@@ -598,6 +639,16 @@ function PredictionResult({
             >
               <FiCompass /> Recommendations
             </button>
+            {onBackToHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-result-action"
+                onClick={onBackToHistory}
+                title="Return to assessment records"
+              >
+                <FiList /> All Records
+              </button>
+            )}
             {onGoDashboard && (
               <button
                 type="button"
@@ -607,13 +658,15 @@ function PredictionResult({
                 <FiBarChart2 /> Dashboard
               </button>
             )}
-            <button
-              type="button"
-              className="btn btn-secondary btn-result-action"
-              onClick={onReset}
-            >
-              <FiRefreshCw /> Retake
-            </button>
+            {onReset && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-result-action"
+                onClick={onReset}
+              >
+                {isHistoryView ? <FiPlusCircle /> : <FiRefreshCw />} {isHistoryView ? "New Assessment" : "Retake"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -882,13 +935,24 @@ function PredictionResult({
 
         {/* Bottom Page Navigation */}
         <div className="subpage-bottom-nav">
-          <button
-            type="button"
-            className="btn btn-secondary btn-bottom-action"
-            onClick={() => setActiveView("result")}
-          >
-            <FiArrowLeft /> Back to Risk Result
-          </button>
+          <div className="bottom-left-actions">
+            <button
+              type="button"
+              className="btn btn-secondary btn-bottom-action"
+              onClick={() => setActiveView("result")}
+            >
+              <FiArrowLeft /> Back to Risk Result
+            </button>
+            {onBackToHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary btn-bottom-action"
+                onClick={onBackToHistory}
+              >
+                <FiList /> All Records
+              </button>
+            )}
+          </div>
           <div className="bottom-right-actions">
             <button
               type="button"

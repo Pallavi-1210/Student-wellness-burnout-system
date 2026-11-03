@@ -489,6 +489,7 @@ function App() {
                 handleReset();
                 setActiveTab("assessment");
               }}
+              onGoDashboard={() => setActiveTab("dashboard")}
             />
           </div>
         ) : (

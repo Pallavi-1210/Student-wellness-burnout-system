@@ -2932,10 +2932,37 @@
   cursor: pointer;
 }
 
+.bottom-left-actions,
 .bottom-right-actions {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* History Detail View Wrapper */
+.history-detail-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.history-detail-top-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.history-record-badge {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--forest-green);
+  background: var(--sage-green-light);
+  border: 1px solid var(--sage-green-border);
+  padding: 6px 14px;
+  border-radius: 9999px;
 }
 
 @media (max-width: 900px) {
@@ -2965,8 +2992,10 @@
     justify-content: center;
   }
 
+  .bottom-left-actions,
   .bottom-right-actions {
     flex-direction: column;
+    width: 100%;
   }
 }
 
