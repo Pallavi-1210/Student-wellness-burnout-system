@@ -16,8 +16,12 @@ import {
   FiCompass,
   FiCheck,
   FiArrowLeft,
+  FiArrowRight,
   FiDollarSign,
   FiPlusCircle,
+  FiAward,
+  FiUser,
+  FiShield,
 } from "react-icons/fi";
 
 function normalizeRiskLevel(prediction) {
@@ -93,9 +97,18 @@ function formatAssessmentDate(dateStr) {
   }
 }
 
+function formatVal(val, suffix = "") {
+  if (val === undefined || val === null || val === "") return "—";
+  if (typeof val === "number") {
+    const formatted = Number.isInteger(val) ? val : Number(val.toFixed(2));
+    return suffix ? `${formatted} ${suffix}` : `${formatted}`;
+  }
+  return suffix ? `${val} ${suffix}` : `${val}`;
+}
+
 /**
- * Returns only 2–3 high-priority, concise personalized recommendations based on actual responses.
- * Each recommendation contains a small icon, short heading, and 1–2 lines of direct advice.
+ * Returns strictly 2–3 high-priority, concise recommendations tailored to actual responses.
+ * Each card features a small icon, short title, and 1–2 lines of practical advice.
  */
 function getTopPersonalizedRecommendations(rawAnswers) {
   const candidates = [];
@@ -111,7 +124,7 @@ function getTopPersonalizedRecommendations(rawAnswers) {
   const financialStress = Number(rawAnswers.financial_stress);
   const socialSupport = Number(rawAnswers.social_support);
 
-  // 1. Sleep deficit check
+  // 1. Sleep recovery check
   if (!isNaN(sleepHours) && sleepHours < 6.5) {
     candidates.push({
       priority: 10,
@@ -185,7 +198,7 @@ function getTopPersonalizedRecommendations(rawAnswers) {
     });
   }
 
-  // Positive maintenance fallbacks if everything is healthy
+  // Positive maintenance fallbacks
   if (candidates.length < 2) {
     candidates.push({
       priority: 3,
@@ -211,7 +224,7 @@ function getTopPersonalizedRecommendations(rawAnswers) {
     });
   }
 
-  // Sort by priority and take exactly the top 2 or 3
+  // Sort by priority and return strictly top 2–3
   candidates.sort((a, b) => b.priority - a.priority);
   return candidates.slice(0, 3);
 }
@@ -221,13 +234,13 @@ function PredictionResult({
   prediction,
   onReset,
   onGoDashboard,
-  onGoHistory,
   onBackToHistory,
   isHistoryView,
   recordNumber,
+  initialView = "result",
 }) {
-  // Navigation View State: 'result' | 'recommendations'
-  const [activeView, setActiveView] = useState("result");
+  // Navigation View State: 'result' | 'recommendations' | 'summary'
+  const [activeView, setActiveView] = useState(initialView);
 
   const resultData = assessmentResult || {};
   const riskKey = normalizeRiskLevel(
@@ -235,28 +248,29 @@ function PredictionResult({
   );
   const config = RISK_CONFIG[riskKey] || RISK_CONFIG.Low;
 
-  const rawAnswers = resultData.answers || resultData.formData || {};
+  const rawAnswers =
+    resultData.answers || resultData.formData || resultData;
   const dateDisplay = formatAssessmentDate(resultData.createdAt);
 
   const topRecommendations = getTopPersonalizedRecommendations(rawAnswers);
 
   // ============================================================================
-  // 1. ASSESSMENT RESULT PAGE
-  // Features prominent risk prediction and ONLY two simple, clean buttons
+  // VIEW 1: ASSESSMENT RESULT OVERVIEW PAGE
+  // Features prominent risk prediction and two clean, beautiful action buttons
   // ============================================================================
   if (activeView === "result") {
     return (
       <div className="prediction-dashboard fade-in">
         {/* Top Header Bar */}
         <div className="dashboard-top-bar">
-          <div>
+          <div className="top-bar-title-block">
             <span className="result-kicker">
               {recordNumber ? `Assessment #${recordNumber}` : "Assessment Complete"}
             </span>
-            <h2 className="result-main-heading">Burnout Risk Result</h2>
+            <h2 className="result-main-heading">Burnout Risk Evaluation</h2>
             <div className="result-timestamp-line">
               <FiCalendar className="meta-icon" />
-              <span>{dateDisplay}</span>
+              <span>Evaluated on {dateDisplay}</span>
             </div>
           </div>
 
@@ -264,17 +278,17 @@ function PredictionResult({
             {onBackToHistory && (
               <button
                 type="button"
-                className="btn btn-secondary btn-result-action"
+                className="btn btn-secondary"
                 onClick={onBackToHistory}
                 title="Return to assessment records"
               >
-                <FiList /> All Records
+                <FiArrowLeft /> Back to Records
               </button>
             )}
             {onGoDashboard && (
               <button
                 type="button"
-                className="btn btn-secondary btn-result-action"
+                className="btn btn-secondary"
                 onClick={onGoDashboard}
                 title="Open Student Dashboard"
               >
@@ -284,7 +298,7 @@ function PredictionResult({
             {onReset && (
               <button
                 type="button"
-                className={`btn ${isHistoryView ? "btn-primary" : "btn-secondary"} btn-result-action`}
+                className="btn btn-secondary"
                 onClick={onReset}
               >
                 {isHistoryView ? <FiPlusCircle /> : <FiRefreshCw />} {isHistoryView ? "New Assessment" : "Retake"}
@@ -293,7 +307,7 @@ function PredictionResult({
           </div>
         </div>
 
-        {/* Clearly Visible Risk Result Card */}
+        {/* Prominent Risk Result Hero Card */}
         <div className={`prediction-summary-hero ${config.cardClass}`}>
           <div className="hero-status-row">
             <div className="hero-status-left">
@@ -307,7 +321,7 @@ function PredictionResult({
 
           <p className="hero-explanation-text">{config.explanation}</p>
 
-          {/* Clean 3-Stage Spectrum Meter */}
+          {/* Clean 3-Stage Risk Spectrum Meter */}
           <div className="compact-risk-spectrum">
             <div className="spectrum-label-row">
               <span>Risk Level</span>
@@ -344,21 +358,21 @@ function PredictionResult({
           </div>
         </div>
 
-        {/* Exactly Two Simple, Clean, Modern Buttons (No descriptions or extra text) */}
+        {/* Two Clean, Consistent Action Buttons (Recommendations & 16-Factor Summary) */}
         <div className="result-two-buttons-group">
           <button
             type="button"
-            className="btn-simple-result btn-simple-recs"
+            className="btn btn-primary btn-hero-action"
             onClick={() => setActiveView("recommendations")}
           >
-            <FiCompass className="btn-simple-icon" /> Personalized Recommendations
+            <FiCompass /> Personalized Recommendations
           </button>
           <button
             type="button"
-            className="btn-simple-result btn-simple-history"
-            onClick={onGoHistory || onBackToHistory}
+            className="btn btn-secondary btn-hero-action"
+            onClick={() => setActiveView("summary")}
           >
-            <FiList className="btn-simple-icon" /> Assessment History
+            <FiActivity /> Assessment Summary (16 Factors)
           </button>
         </div>
       </div>
@@ -366,27 +380,27 @@ function PredictionResult({
   }
 
   // ============================================================================
-  // 2. PERSONALIZED RECOMMENDATIONS PAGE
-  // Displays only 2–3 concise, beautiful cards with an icon, short heading & advice
+  // VIEW 2: PERSONALIZED RECOMMENDATIONS PAGE
+  // Displays only 2–3 concise, beautiful cards with icon, short title & direct advice
   // ============================================================================
   if (activeView === "recommendations") {
     return (
       <div className="prediction-dashboard recommendations-page fade-in">
-        {/* Simple Top Bar */}
+        {/* Clean Header Bar */}
         <div className="dashboard-top-bar">
           <div className="nav-back-group">
             <button
               type="button"
-              className="btn btn-secondary btn-back-nav"
+              className="btn btn-secondary"
               onClick={() => setActiveView("result")}
-              title="Return to Assessment Result"
+              title="Return to Risk Result"
             >
               <FiArrowLeft /> Back to Result
             </button>
             <div className="subpage-title-block">
               <h2 className="result-main-heading">Personalized Recommendations</h2>
               <div className="result-timestamp-line">
-                <span>Derived from your assessment responses</span>
+                <span>Top recommendations based on your actual responses</span>
               </div>
             </div>
           </div>
@@ -394,15 +408,26 @@ function PredictionResult({
           <div className="result-action-buttons">
             <button
               type="button"
-              className="btn btn-secondary btn-result-action"
-              onClick={onGoHistory || onBackToHistory}
+              className="btn btn-secondary"
+              onClick={() => setActiveView("summary")}
+              title="View all 16 factors"
             >
-              <FiList /> History
+              <FiActivity /> Assessment Summary
             </button>
+            {onBackToHistory && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onBackToHistory}
+                title="Return to Records"
+              >
+                <FiList /> Records
+              </button>
+            )}
             {onGoDashboard && (
               <button
                 type="button"
-                className="btn btn-secondary btn-result-action"
+                className="btn btn-secondary"
                 onClick={onGoDashboard}
               >
                 <FiBarChart2 /> Dashboard
@@ -426,7 +451,7 @@ function PredictionResult({
           ))}
         </div>
 
-        {/* Simple Bottom Navigation */}
+        {/* Consistent Bottom Navigation */}
         <div className="clean-bottom-nav">
           <button
             type="button"
@@ -438,9 +463,345 @@ function PredictionResult({
           <button
             type="button"
             className="btn btn-primary"
-            onClick={onGoHistory || onBackToHistory}
+            onClick={() => setActiveView("summary")}
           >
-            <FiList /> Assessment History
+            View Assessment Summary (16 Factors) <FiArrowRight />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================================
+  // VIEW 3: COMPLETE ASSESSMENT SUMMARY (16 INDIVIDUAL FACTOR CARDS)
+  // Shows ALL submitted assessment factors in beautiful individual cards
+  // grouped into Academic Life, Mental Wellness, Daily Lifestyle, Personal Factors
+  // ============================================================================
+  if (activeView === "summary") {
+    return (
+      <div className="prediction-dashboard summary-page fade-in">
+        {/* Clean Header Bar */}
+        <div className="dashboard-top-bar">
+          <div className="nav-back-group">
+            {isHistoryView && onBackToHistory ? (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onBackToHistory}
+                title="Return to assessment history records"
+              >
+                <FiArrowLeft /> Back to Records
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setActiveView("result")}
+                title="Return to Risk Result"
+              >
+                <FiArrowLeft /> Back to Result
+              </button>
+            )}
+            <div className="subpage-title-block">
+              <h2 className="result-main-heading">
+                {recordNumber ? `Assessment #${recordNumber} Summary` : "Assessment Summary"}
+              </h2>
+              <div className="result-timestamp-line">
+                <FiCalendar className="meta-icon" />
+                <span>All 16 submitted assessment factors recorded on {dateDisplay}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="result-action-buttons">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setActiveView("result")}
+              title="View Risk Evaluation"
+            >
+              <FiCheckCircle /> Risk Result
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setActiveView("recommendations")}
+              title="View Recommendations"
+            >
+              <FiCompass /> Recommendations
+            </button>
+            {onGoDashboard && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={onGoDashboard}
+              >
+                <FiBarChart2 /> Dashboard
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* 16 Submitted Factors in 4 Organized Sections with Individual Data Cards */}
+        <div className="factors-sections-wrapper">
+          {/* Section 1: Academic Life */}
+          <div className="factors-section-group">
+            <div className="factors-section-header">
+              <span className="factors-section-icon icon-academic">
+                <FiBookOpen />
+              </span>
+              <div>
+                <h3 className="factors-section-title">Academic Life</h3>
+                <span className="factors-section-caption">Workload, exam pressure, performance, and expectations</span>
+              </div>
+            </div>
+            <div className="factors-cards-grid">
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-academic"><FiBookOpen /></span>
+                  <span className="factor-name">Study Hours</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {formatVal(rawAnswers.study_hours_per_day, "hrs")}
+                </div>
+                <span className="factor-subtext">Daily dedicated study time</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-academic"><FiActivity /></span>
+                  <span className="factor-name">Exam Pressure</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.exam_pressure !== undefined ? `${rawAnswers.exam_pressure} / 10` : "—"}
+                </div>
+                <span className="factor-subtext">Self-reported exam tension</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-academic"><FiAward /></span>
+                  <span className="factor-name">Academic Performance</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {formatVal(rawAnswers.academic_performance, "%")}
+                </div>
+                <span className="factor-subtext">GPA / Grade equivalent</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-academic"><FiUsers /></span>
+                  <span className="factor-name">Family Expectation</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.family_expectation !== undefined ? `${rawAnswers.family_expectation} / 10` : "—"}
+                </div>
+                <span className="factor-subtext">Perceived family pressure</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Mental Wellness */}
+          <div className="factors-section-group">
+            <div className="factors-section-header">
+              <span className="factors-section-icon icon-mental">
+                <FiHeart />
+              </span>
+              <div>
+                <h3 className="factors-section-title">Mental Wellness</h3>
+                <span className="factors-section-caption">Stress level, anxiety, depression, and social support</span>
+              </div>
+            </div>
+            <div className="factors-cards-grid">
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-mental"><FiHeart /></span>
+                  <span className="factor-name">Stress Level</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.stress_level !== undefined ? `${rawAnswers.stress_level} / 10` : "—"}
+                </div>
+                <span className="factor-subtext">Perceived stress rating</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-mental"><FiHeart /></span>
+                  <span className="factor-name">Anxiety Score</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.anxiety_score !== undefined ? `${formatVal(rawAnswers.anxiety_score)} / 9.11` : "—"}
+                </div>
+                <span className="factor-subtext">Standardized anxiety rating</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-mental"><FiHeart /></span>
+                  <span className="factor-name">Depression Score</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.depression_score !== undefined ? `${formatVal(rawAnswers.depression_score)} / 7.74` : "—"}
+                </div>
+                <span className="factor-subtext">Standardized depressive index</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-mental"><FiUsers /></span>
+                  <span className="factor-name">Social Support</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.social_support !== undefined ? `${rawAnswers.social_support} / 10` : "—"}
+                </div>
+                <span className="factor-subtext">Peer & community connection</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Daily Lifestyle */}
+          <div className="factors-section-group">
+            <div className="factors-section-header">
+              <span className="factors-section-icon icon-lifestyle">
+                <FiMoon />
+              </span>
+              <div>
+                <h3 className="factors-section-title">Daily Lifestyle</h3>
+                <span className="factors-section-caption">Sleep, exercise, screen time, and internet habits</span>
+              </div>
+            </div>
+            <div className="factors-cards-grid">
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-lifestyle"><FiMoon /></span>
+                  <span className="factor-name">Sleep Hours</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {formatVal(rawAnswers.sleep_hours, "hrs")}
+                </div>
+                <span className="factor-subtext">Nightly sleep duration</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-lifestyle"><FiActivity /></span>
+                  <span className="factor-name">Physical Activity</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {formatVal(rawAnswers.physical_activity, "hrs")}
+                </div>
+                <span className="factor-subtext">Daily active movement</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-lifestyle"><FiMonitor /></span>
+                  <span className="factor-name">Screen Time</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {formatVal(rawAnswers.screen_time, "hrs")}
+                </div>
+                <span className="factor-subtext">Daily device & display exposure</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-lifestyle"><FiCompass /></span>
+                  <span className="factor-name">Internet Usage</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {formatVal(rawAnswers.internet_usage, "hrs")}
+                </div>
+                <span className="factor-subtext">Daily online hours</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Personal & Financial Factors */}
+          <div className="factors-section-group">
+            <div className="factors-section-header">
+              <span className="factors-section-icon icon-personal">
+                <FiDollarSign />
+              </span>
+              <div>
+                <h3 className="factors-section-title">Personal & Financial Factors</h3>
+                <span className="factors-section-caption">Demographics and living expense stress</span>
+              </div>
+            </div>
+            <div className="factors-cards-grid">
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-personal"><FiUser /></span>
+                  <span className="factor-name">Student Age</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {formatVal(rawAnswers.age, "yrs")}
+                </div>
+                <span className="factor-subtext">Chronological age</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-personal"><FiShield /></span>
+                  <span className="factor-name">Gender</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.gender || "—"}
+                </div>
+                <span className="factor-subtext">Identified gender</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-personal"><FiBookOpen /></span>
+                  <span className="factor-name">Academic Year</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.academic_year !== undefined ? `Year ${rawAnswers.academic_year}` : "—"}
+                </div>
+                <span className="factor-subtext">Current program level</span>
+              </div>
+
+              <div className="factor-individual-card">
+                <div className="factor-card-top">
+                  <span className="factor-icon-wrap icon-personal"><FiDollarSign /></span>
+                  <span className="factor-name">Financial Stress</span>
+                </div>
+                <div className="factor-value-highlight">
+                  {rawAnswers.financial_stress !== undefined ? `${rawAnswers.financial_stress} / 10` : "—"}
+                </div>
+                <span className="factor-subtext">Tuition & living expense strain</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Consistent Bottom Navigation */}
+        <div className="clean-bottom-nav">
+          {isHistoryView && onBackToHistory ? (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onBackToHistory}
+            >
+              <FiArrowLeft /> Back to Records
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setActiveView("result")}
+            >
+              <FiArrowLeft /> Back to Result
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => setActiveView("recommendations")}
+          >
+            Personalized Recommendations <FiArrowRight />
           </button>
         </div>
       </div>

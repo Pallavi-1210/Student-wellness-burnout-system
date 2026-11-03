@@ -9,7 +9,10 @@ import {
   FiRefreshCw,
   FiPlusCircle,
   FiList,
-  FiArrowLeft,
+  FiMoon,
+  FiBookOpen,
+  FiHeart,
+  FiActivity,
 } from "react-icons/fi";
 import { API_ENDPOINTS } from "../../utils/apiConfig";
 import PredictionResult from "../PredictionResult";
@@ -131,7 +134,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
   }, [token]);
 
   // When student clicks "View Details" on an assessment card,
-  // display the detailed record with the prominent risk level & personalized recommendations
+  // display the detailed record with all 16 factors grouped into sections
   if (selectedAssessment) {
     const recordNum =
       assessments.findIndex((a) => a._id === selectedAssessment._id) >= 0
@@ -141,29 +144,16 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
 
     return (
       <div className="history-detail-wrapper fade-in">
-        <div className="history-detail-top-nav">
-          <button
-            type="button"
-            className="btn btn-secondary btn-back-nav"
-            onClick={() => setSelectedAssessment(null)}
-            title="Return to assessment history records"
-          >
-            <FiArrowLeft /> Back to Records
-          </button>
-          <div className="history-record-badge">
-            Evaluation #{recordNum}
-          </div>
-        </div>
-
         <div className="form-card assessment-card result-view-card">
           <PredictionResult
+            key={selectedAssessment._id || recordNum}
             assessmentResult={selectedAssessment}
             onReset={onTakeAssessment}
             onGoDashboard={onGoDashboard}
-            onGoHistory={() => setSelectedAssessment(null)}
             onBackToHistory={() => setSelectedAssessment(null)}
             isHistoryView={true}
             recordNumber={recordNum}
+            initialView="summary"
           />
         </div>
       </div>
@@ -183,7 +173,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           </div>
           <h2 className="dash-main-title">Assessment History</h2>
           <p className="dash-subtitle">
-            Historical log of your past burnout evaluations.
+            Historical log of your past burnout evaluations and tracked wellbeing metrics.
           </p>
         </div>
         <div className="dashboard-header-actions">
@@ -235,23 +225,27 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           </button>
         </div>
       ) : (
-        /* 2. Beautiful History Record Cards (Replaces crowded tables) */
+        /* 2. Sleek History Record Cards with Key Assessment Content (Sleep, Study, Stress, Exam) */
         <div className="history-cards-grid">
           {assessments.map((item, idx) => {
             const riskKey = normalizeRisk(item.burnoutLevel);
             const meta = RISK_META[riskKey] || RISK_META.Low;
+            const answers = item.answers || {};
+            const recordIndex = assessments.length - idx;
 
             return (
               <div key={item._id || idx} className="history-record-card">
+                {/* Header: Date and Index */}
                 <div className="record-card-top">
                   <div className="record-date-wrapper">
                     <FiCalendar className="record-date-icon" />
                     <span className="record-date-text">{formatDateTime(item.createdAt)}</span>
                   </div>
-                  <span className="record-index-badge">#{assessments.length - idx}</span>
+                  <span className="record-index-badge">#{recordIndex}</span>
                 </div>
 
-                <div className="record-card-body">
+                {/* Risk Level Badge */}
+                <div className="record-risk-row">
                   <span className="record-risk-caption">Burnout Risk</span>
                   <span className={`risk-category-pill ${meta.pillClass}`}>
                     <span className="pill-dot" />
@@ -259,6 +253,50 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
                   </span>
                 </div>
 
+                {/* Key Assessment Factors: Sleep, Study, Stress, Exam */}
+                <div className="record-metrics-grid">
+                  <div className="record-metric-item" title="Nightly Sleep Duration">
+                    <FiMoon className="metric-item-icon icon-sleep" />
+                    <div className="metric-item-text">
+                      <span className="metric-item-label">Sleep</span>
+                      <strong className="metric-item-val">
+                        {answers.sleep_hours !== undefined ? `${answers.sleep_hours}h` : "—"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="record-metric-item" title="Daily Study Hours">
+                    <FiBookOpen className="metric-item-icon icon-study" />
+                    <div className="metric-item-text">
+                      <span className="metric-item-label">Study</span>
+                      <strong className="metric-item-val">
+                        {answers.study_hours_per_day !== undefined ? `${answers.study_hours_per_day}h` : "—"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="record-metric-item" title="Stress Rating">
+                    <FiHeart className="metric-item-icon icon-stress" />
+                    <div className="metric-item-text">
+                      <span className="metric-item-label">Stress</span>
+                      <strong className="metric-item-val">
+                        {answers.stress_level !== undefined ? `${answers.stress_level}/10` : "—"}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="record-metric-item" title="Exam Pressure">
+                    <FiActivity className="metric-item-icon icon-pressure" />
+                    <div className="metric-item-text">
+                      <span className="metric-item-label">Exam</span>
+                      <strong className="metric-item-val">
+                        {answers.exam_pressure !== undefined ? `${answers.exam_pressure}/10` : "—"}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card Action */}
                 <div className="record-card-footer">
                   <button
                     type="button"
