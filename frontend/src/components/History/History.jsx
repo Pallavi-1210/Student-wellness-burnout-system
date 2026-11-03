@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import axios from "axios";
 import {
   FiCalendar,
   FiCheckCircle,
   FiAlertTriangle,
   FiAlertCircle,
-  FiEye,
   FiRefreshCw,
   FiPlusCircle,
   FiList,
@@ -13,6 +12,9 @@ import {
   FiBookOpen,
   FiHeart,
   FiActivity,
+  FiArrowRight,
+  FiShield,
+  FiLayers,
 } from "react-icons/fi";
 import { API_ENDPOINTS } from "../../utils/apiConfig";
 import PredictionResult from "../PredictionResult";
@@ -48,6 +50,7 @@ const RISK_META = {
     fullLabel: "Low Burnout Risk",
     pillClass: "risk-pill-low",
     cardClass: "risk-card-low",
+    accentClass: "risk-accent-low",
     icon: <FiCheckCircle />,
     explanation:
       "Workload and lifestyle factors are well balanced. Maintain current study pacing and restorative sleep routines.",
@@ -57,6 +60,7 @@ const RISK_META = {
     fullLabel: "Moderate Burnout Risk",
     pillClass: "risk-pill-medium",
     cardClass: "risk-card-medium",
+    accentClass: "risk-accent-medium",
     icon: <FiAlertTriangle />,
     explanation:
       "Moderate academic pressure or lifestyle fatigue detected. Pacing assignments and setting evening boundaries recommended.",
@@ -66,6 +70,7 @@ const RISK_META = {
     fullLabel: "High Burnout Risk",
     pillClass: "risk-pill-high",
     cardClass: "risk-card-high",
+    accentClass: "risk-accent-high",
     icon: <FiAlertCircle />,
     explanation:
       "Elevated stress and fatigue levels recorded. Taking proactive rest and seeking campus wellness counseling is strongly advised.",
@@ -77,6 +82,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedAssessment, setSelectedAssessment] = useState(null);
+  const [riskFilter, setRiskFilter] = useState("all");
 
   const fetchHistory = useCallback(async () => {
     setIsLoading(true);
@@ -133,6 +139,44 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
     };
   }, [token]);
 
+  // Derived Summary Metrics for top ribbon
+  const stats = useMemo(() => {
+    if (!assessments.length) {
+      return { total: 0, low: 0, med: 0, high: 0, avgSleep: "—", avgStress: "—", latestRisk: "None" };
+    }
+    const low = assessments.filter((a) => normalizeRisk(a.burnoutLevel) === "Low").length;
+    const med = assessments.filter((a) => normalizeRisk(a.burnoutLevel) === "Medium").length;
+    const high = assessments.filter((a) => normalizeRisk(a.burnoutLevel) === "High").length;
+
+    const sleepSum = assessments.reduce(
+      (sum, a) => sum + (Number(a.answers?.sleep_hours) || 0),
+      0
+    );
+    const stressSum = assessments.reduce(
+      (sum, a) => sum + (Number(a.answers?.stress_level) || 0),
+      0
+    );
+
+    const latest = assessments[0];
+    const latestRisk = latest ? normalizeRisk(latest.burnoutLevel) : "None";
+
+    return {
+      total: assessments.length,
+      low,
+      med,
+      high,
+      avgSleep: (sleepSum / assessments.length).toFixed(1),
+      avgStress: (stressSum / assessments.length).toFixed(1),
+      latestRisk,
+    };
+  }, [assessments]);
+
+  // Filtered assessments list
+  const filteredAssessments = useMemo(() => {
+    if (riskFilter === "all") return assessments;
+    return assessments.filter((a) => normalizeRisk(a.burnoutLevel) === riskFilter);
+  }, [assessments, riskFilter]);
+
   // When student clicks "View Details" on an assessment card,
   // display the detailed record with all 16 factors grouped into sections
   if (selectedAssessment) {
@@ -173,7 +217,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           </div>
           <h2 className="dash-main-title">Assessment History</h2>
           <p className="dash-subtitle">
-            Historical log of your past burnout evaluations and tracked wellbeing metrics.
+            Historical log of your past burnout evaluations, lifestyle metrics, and wellbeing progress.
           </p>
         </div>
         <div className="dashboard-header-actions">
@@ -203,6 +247,97 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
         </div>
       )}
 
+      {/* 2. Top Summary Analytics Strip (when records exist) */}
+      {!isLoading && assessments.length > 0 && (
+        <div className="history-quick-stats-strip">
+          <div className="history-stat-box">
+            <div className="history-stat-icon-wrap icon-total">
+              <FiLayers />
+            </div>
+            <div className="history-stat-info">
+              <span className="history-stat-label">Total Evaluated</span>
+              <strong className="history-stat-value">{stats.total} Records</strong>
+            </div>
+          </div>
+
+          <div className="history-stat-box">
+            <div className="history-stat-icon-wrap icon-risk">
+              <FiShield />
+            </div>
+            <div className="history-stat-info">
+              <span className="history-stat-label">Latest Burnout Risk</span>
+              <strong className="history-stat-value">
+                {stats.latestRisk === "Low" ? (
+                  <span className="risk-text-low">Low Risk</span>
+                ) : stats.latestRisk === "Medium" ? (
+                  <span className="risk-text-med">Moderate</span>
+                ) : (
+                  <span className="risk-text-high">High Risk</span>
+                )}
+              </strong>
+            </div>
+          </div>
+
+          <div className="history-stat-box">
+            <div className="history-stat-icon-wrap icon-sleep">
+              <FiMoon />
+            </div>
+            <div className="history-stat-info">
+              <span className="history-stat-label">Average Sleep</span>
+              <strong className="history-stat-value">{stats.avgSleep} hrs/night</strong>
+            </div>
+          </div>
+
+          <div className="history-stat-box">
+            <div className="history-stat-icon-wrap icon-stress">
+              <FiHeart />
+            </div>
+            <div className="history-stat-info">
+              <span className="history-stat-label">Average Stress</span>
+              <strong className="history-stat-value">{stats.avgStress} / 10</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 3. Filter Segmented Control (when records exist) */}
+      {!isLoading && assessments.length > 0 && (
+        <div className="history-filters-bar">
+          <span className="history-filter-title">Filter by Risk:</span>
+          <div className="history-filter-pills">
+            <button
+              type="button"
+              className={`history-filter-btn ${riskFilter === "all" ? "active" : ""}`}
+              onClick={() => setRiskFilter("all")}
+            >
+              All Records <span className="filter-count">({stats.total})</span>
+            </button>
+            <button
+              type="button"
+              className={`history-filter-btn ${riskFilter === "Low" ? "active" : ""}`}
+              onClick={() => setRiskFilter("Low")}
+            >
+              Low Risk <span className="filter-count">({stats.low})</span>
+            </button>
+            <button
+              type="button"
+              className={`history-filter-btn ${riskFilter === "Medium" ? "active" : ""}`}
+              onClick={() => setRiskFilter("Medium")}
+            >
+              Moderate <span className="filter-count">({stats.med})</span>
+            </button>
+            <button
+              type="button"
+              className={`history-filter-btn ${riskFilter === "High" ? "active" : ""}`}
+              onClick={() => setRiskFilter("High")}
+            >
+              High Risk <span className="filter-count">({stats.high})</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Loading / Empty / Cards List */}
       {isLoading ? (
         <div className="loading-state-card">
           <FiRefreshCw className="loading-spinner spin" />
@@ -214,7 +349,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           <h3>No Records Found</h3>
           <p>
             You have not completed any burnout evaluations yet. Complete an assessment
-            to view your historical records.
+            to view your historical records and personalized trajectory.
           </p>
           <button
             type="button"
@@ -224,17 +359,36 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
             <FiPlusCircle /> Take First Assessment
           </button>
         </div>
+      ) : filteredAssessments.length === 0 ? (
+        <div className="empty-state-card">
+          <FiList className="empty-icon" />
+          <h3>No {riskFilter} Risk Records</h3>
+          <p>You have no evaluations matching the selected filter.</p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setRiskFilter("all")}
+          >
+            View All Records
+          </button>
+        </div>
       ) : (
-        /* 2. Sleek History Record Cards with Key Assessment Content (Sleep, Study, Stress, Exam) */
+        /* Modern History Record Cards with Key Assessment Content */
         <div className="history-cards-grid">
-          {assessments.map((item, idx) => {
+          {filteredAssessments.map((item) => {
             const riskKey = normalizeRisk(item.burnoutLevel);
             const meta = RISK_META[riskKey] || RISK_META.Low;
             const answers = item.answers || {};
-            const recordIndex = assessments.length - idx;
+            const recordIndex =
+              assessments.findIndex((a) => a._id === item._id) >= 0
+                ? assessments.length - assessments.findIndex((a) => a._id === item._id)
+                : 1;
 
             return (
-              <div key={item._id || idx} className="history-record-card">
+              <div
+                key={item._id}
+                className={`history-record-card ${meta.accentClass}`}
+              >
                 {/* Header: Date and Index */}
                 <div className="record-card-top">
                   <div className="record-date-wrapper">
@@ -304,7 +458,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
                     onClick={() => setSelectedAssessment(item)}
                     title="View evaluation details"
                   >
-                    <FiEye className="btn-icon" /> View Details
+                    View Full Breakdown <FiArrowRight className="btn-icon" />
                   </button>
                 </div>
               </div>
