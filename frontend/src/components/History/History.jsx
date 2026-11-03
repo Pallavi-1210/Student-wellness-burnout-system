@@ -9,9 +9,6 @@ import {
   FiRefreshCw,
   FiPlusCircle,
   FiList,
-  FiBookOpen,
-  FiHeart,
-  FiMoon,
   FiArrowLeft,
 } from "react-icons/fi";
 import { API_ENDPOINTS } from "../../utils/apiConfig";
@@ -133,9 +130,8 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
     };
   }, [token]);
 
-  // If student clicked "View Details" on an assessment record,
-  // display the exact same 3-page post-assessment flow:
-  // Risk Result Page → Personalized Recommendations / Assessment Summary
+  // When student clicks "View Details" on an assessment card,
+  // display the detailed record with the prominent risk level & personalized recommendations
   if (selectedAssessment) {
     const recordNum =
       assessments.findIndex((a) => a._id === selectedAssessment._id) >= 0
@@ -152,10 +148,10 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
             onClick={() => setSelectedAssessment(null)}
             title="Return to assessment history records"
           >
-            <FiArrowLeft /> Back to All Records
+            <FiArrowLeft /> Back to Records
           </button>
           <div className="history-record-badge">
-            Viewing Evaluation #{recordNum}
+            Evaluation #{recordNum}
           </div>
         </div>
 
@@ -187,7 +183,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           </div>
           <h2 className="dash-main-title">Assessment History</h2>
           <p className="dash-subtitle">
-            Historical log of your past burnout evaluations and tracked wellbeing metrics.
+            Historical log of your past burnout evaluations.
           </p>
         </div>
         <div className="dashboard-header-actions">
@@ -228,7 +224,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           <h3>No Records Found</h3>
           <p>
             You have not completed any burnout evaluations yet. Complete an assessment
-            to view your historical records, breakdown analysis, and longitudinal trends.
+            to view your historical records.
           </p>
           <button
             type="button"
@@ -239,80 +235,43 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           </button>
         </div>
       ) : (
-        /* 2. Sleek History Records Table Card */
-        <div className="history-table-card">
-          <div className="table-responsive">
-            <table className="history-table">
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Date & Time</th>
-                  <th>Burnout Risk</th>
-                  <th>Key Factors</th>
-                  <th style={{ textAlign: "right" }}>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {assessments.map((item, idx) => {
-                  const riskKey = normalizeRisk(item.burnoutLevel);
-                  const meta = RISK_META[riskKey] || RISK_META.Low;
-                  const answers = item.answers || {};
+        /* 2. Beautiful History Record Cards (Replaces crowded tables) */
+        <div className="history-cards-grid">
+          {assessments.map((item, idx) => {
+            const riskKey = normalizeRisk(item.burnoutLevel);
+            const meta = RISK_META[riskKey] || RISK_META.Low;
 
-                  return (
-                    <tr key={item._id || idx}>
-                      <td className="row-num">
-                        #{assessments.length - idx}
-                      </td>
-                      <td className="row-date">
-                        <div className="date-wrapper">
-                          <FiCalendar className="date-icon" />
-                          <span>{formatDateTime(item.createdAt)}</span>
-                        </div>
-                      </td>
-                      <td className="row-level">
-                        <span className={`risk-category-pill ${meta.pillClass}`}>
-                          <span className="pill-dot" />
-                          {meta.label}
-                        </span>
-                      </td>
-                      <td className="row-metrics">
-                        <div className="metric-tags-row">
-                          <span className="metric-mini-tag">
-                            <FiBookOpen className="tag-icon" />
-                            {answers.study_hours_per_day !== undefined
-                              ? `${answers.study_hours_per_day}h study`
-                              : "—"}
-                          </span>
-                          <span className="metric-mini-tag">
-                            <FiMoon className="tag-icon" />
-                            {answers.sleep_hours !== undefined
-                              ? `${answers.sleep_hours}h sleep`
-                              : "—"}
-                          </span>
-                          <span className="metric-mini-tag">
-                            <FiHeart className="tag-icon" />
-                            {answers.stress_level !== undefined
-                              ? `Stress ${answers.stress_level}/10`
-                              : "—"}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="row-action" style={{ textAlign: "right" }}>
-                        <button
-                          type="button"
-                          className="btn-history-view"
-                          onClick={() => setSelectedAssessment(item)}
-                          title="View evaluation details"
-                        >
-                          <FiEye /> View Details
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+            return (
+              <div key={item._id || idx} className="history-record-card">
+                <div className="record-card-top">
+                  <div className="record-date-wrapper">
+                    <FiCalendar className="record-date-icon" />
+                    <span className="record-date-text">{formatDateTime(item.createdAt)}</span>
+                  </div>
+                  <span className="record-index-badge">#{assessments.length - idx}</span>
+                </div>
+
+                <div className="record-card-body">
+                  <span className="record-risk-caption">Burnout Risk</span>
+                  <span className={`risk-category-pill ${meta.pillClass}`}>
+                    <span className="pill-dot" />
+                    {meta.label}
+                  </span>
+                </div>
+
+                <div className="record-card-footer">
+                  <button
+                    type="button"
+                    className="btn-card-view-details"
+                    onClick={() => setSelectedAssessment(item)}
+                    title="View evaluation details"
+                  >
+                    <FiEye className="btn-icon" /> View Details
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
