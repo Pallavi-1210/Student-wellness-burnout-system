@@ -1,39 +1,38 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import {
-  FiCalendar,
-  FiCheckCircle,
-  FiAlertTriangle,
-  FiAlertCircle,
   FiRefreshCw,
   FiPlusCircle,
+  FiArrowLeft,
+  FiCompass,
   FiList,
-  FiMoon,
-  FiBookOpen,
-  FiHeart,
-  FiActivity,
-  FiArrowRight,
-  FiShield,
-  FiLayers,
+  FiTrendingUp,
+  FiAlertCircle,
 } from "react-icons/fi";
 import { API_ENDPOINTS } from "../../utils/apiConfig";
-import PredictionResult from "../PredictionResult";
+import { getTopPersonalizedRecommendations } from "../../utils/recommendations";
 
 const API_BASE_URL = API_ENDPOINTS.ASSESSMENTS;
 
-function formatDateTime(dateStr) {
-  if (!dateStr) return "—";
+function formatHistoryDate(dateStr) {
+  if (!dateStr) return { date: "—", time: "", full: "—" };
   try {
     const d = new Date(dateStr);
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = d.toLocaleDateString("en-US", { month: "long" });
+    const year = d.getFullYear();
+    const time = d.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
+      hour12: true,
     });
+    return {
+      date: `${day} ${month} ${year}`,
+      time: time,
+      full: `${day} ${month} ${year} · ${time}`,
+    };
   } catch {
-    return String(dateStr);
+    return { date: String(dateStr), time: "", full: String(dateStr) };
   }
 }
 
@@ -47,42 +46,42 @@ function normalizeRisk(level) {
 const RISK_META = {
   Low: {
     label: "Low Risk",
-    fullLabel: "Low Burnout Risk",
-    pillClass: "risk-pill-low",
-    cardClass: "risk-card-low",
-    accentClass: "risk-accent-low",
-    icon: <FiCheckCircle />,
-    explanation:
-      "Workload and lifestyle factors are well balanced. Maintain current study pacing and restorative sleep routines.",
+    pillClass: "dark-pill-low",
   },
   Medium: {
     label: "Moderate Risk",
-    fullLabel: "Moderate Burnout Risk",
-    pillClass: "risk-pill-medium",
-    cardClass: "risk-card-medium",
-    accentClass: "risk-accent-medium",
-    icon: <FiAlertTriangle />,
-    explanation:
-      "Moderate academic pressure or lifestyle fatigue detected. Pacing assignments and setting evening boundaries recommended.",
+    pillClass: "dark-pill-medium",
   },
   High: {
     label: "High Risk",
-    fullLabel: "High Burnout Risk",
-    pillClass: "risk-pill-high",
-    cardClass: "risk-card-high",
-    accentClass: "risk-accent-high",
-    icon: <FiAlertCircle />,
-    explanation:
-      "Elevated stress and fatigue levels recorded. Taking proactive rest and seeking campus wellness counseling is strongly advised.",
+    pillClass: "dark-pill-high",
   },
 };
 
-function History({ token, onTakeAssessment, onGoDashboard }) {
+function formatHours(val) {
+  if (val === undefined || val === null || val === "") return "—";
+  return `${val} Hours`;
+}
+
+function formatScore(val, max = 10) {
+  if (val === undefined || val === null || val === "") return "—";
+  return `${val}/${max}`;
+}
+
+function formatAcademicPerformance(val) {
+  if (val === undefined || val === null || val === "") return "—";
+  const num = Number(val);
+  if (isNaN(num)) return String(val);
+  if (num <= 10) return `${num}/10`;
+  return `${num}%`;
+}
+
+function History({ token, onTakeAssessment }) {
   const [assessments, setAssessments] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedAssessment, setSelectedAssessment] = useState(null);
-  const [riskFilter, setRiskFilter] = useState("all");
+  const [activeTab, setActiveTab] = useState("breakdown"); // 'breakdown' | 'recommendations'
 
   const fetchHistory = useCallback(async () => {
     setIsLoading(true);
@@ -139,333 +138,306 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
     };
   }, [token]);
 
-  // Derived Summary Metrics for top ribbon
-  const stats = useMemo(() => {
-    if (!assessments.length) {
-      return { total: 0, low: 0, med: 0, high: 0, avgSleep: "—", avgStress: "—", latestRisk: "None" };
-    }
-    const low = assessments.filter((a) => normalizeRisk(a.burnoutLevel) === "Low").length;
-    const med = assessments.filter((a) => normalizeRisk(a.burnoutLevel) === "Medium").length;
-    const high = assessments.filter((a) => normalizeRisk(a.burnoutLevel) === "High").length;
-
-    const sleepSum = assessments.reduce(
-      (sum, a) => sum + (Number(a.answers?.sleep_hours) || 0),
-      0
-    );
-    const stressSum = assessments.reduce(
-      (sum, a) => sum + (Number(a.answers?.stress_level) || 0),
-      0
-    );
-
-    const latest = assessments[0];
-    const latestRisk = latest ? normalizeRisk(latest.burnoutLevel) : "None";
-
-    return {
-      total: assessments.length,
-      low,
-      med,
-      high,
-      avgSleep: (sleepSum / assessments.length).toFixed(1),
-      avgStress: (stressSum / assessments.length).toFixed(1),
-      latestRisk,
-    };
-  }, [assessments]);
-
-  // Filtered assessments list
-  const filteredAssessments = useMemo(() => {
-    if (riskFilter === "all") return assessments;
-    return assessments.filter((a) => normalizeRisk(a.burnoutLevel) === riskFilter);
-  }, [assessments, riskFilter]);
-
-  // When student clicks "View Details" on an assessment card,
-  // display the detailed record with all 16 factors grouped into sections
+  // ============================================================================
+  // VIEW 2: FULL ASSESSMENT BREAKDOWN (AFTER CLICKING FULL BREAKDOWN)
+  // Matches the exact second card in the user's mockup
+  // ============================================================================
   if (selectedAssessment) {
-    const recordNum =
-      assessments.findIndex((a) => a._id === selectedAssessment._id) >= 0
-        ? assessments.length -
-          assessments.findIndex((a) => a._id === selectedAssessment._id)
-        : 1;
+    const { full } = formatHistoryDate(selectedAssessment.createdAt);
+    const riskKey = normalizeRisk(selectedAssessment.burnoutLevel);
+    const meta = RISK_META[riskKey] || RISK_META.Low;
+    const answers = selectedAssessment.answers || selectedAssessment.formData || {};
+    const recommendations = getTopPersonalizedRecommendations(answers);
 
     return (
-      <div className="history-detail-wrapper fade-in">
-        <div className="form-card assessment-card result-view-card">
-          <PredictionResult
-            key={selectedAssessment._id || recordNum}
-            assessmentResult={selectedAssessment}
-            onReset={onTakeAssessment}
-            onGoDashboard={onGoDashboard}
-            onBackToHistory={() => setSelectedAssessment(null)}
-            isHistoryView={true}
-            recordNumber={recordNum}
-            initialView="summary"
-          />
+      <div className="dark-history-outer-container fade-in">
+        <div className="dark-history-card">
+          {/* Header Row */}
+          <div className="dark-card-header">
+            <div className="dark-header-title-block">
+              <h2 className="dark-main-title">Full Assessment Breakdown</h2>
+              <p className="dark-subtitle">{full}</p>
+            </div>
+            <div className="dark-header-right-actions">
+              <span className={`dark-risk-pill ${meta.pillClass}`}>
+                {meta.label}
+              </span>
+              <button
+                type="button"
+                className="dark-pill-btn"
+                onClick={() => {
+                  setSelectedAssessment(null);
+                  setActiveTab("breakdown");
+                }}
+                title="Return to assessment history"
+              >
+                <FiArrowLeft /> Back to History
+              </button>
+            </div>
+          </div>
+
+          {/* Clean Sub-navigation for Breakdown vs Recommendations */}
+          <div className="dark-view-switcher">
+            <button
+              type="button"
+              className={`dark-switch-tab ${activeTab === "breakdown" ? "active" : ""}`}
+              onClick={() => setActiveTab("breakdown")}
+            >
+              <FiList /> All Factors
+            </button>
+            <button
+              type="button"
+              className={`dark-switch-tab ${activeTab === "recommendations" ? "active" : ""}`}
+              onClick={() => setActiveTab("recommendations")}
+            >
+              <FiCompass /> Recommendations ({recommendations.length})
+            </button>
+          </div>
+
+          <div className="dark-divider-line" />
+
+          {activeTab === "breakdown" ? (
+            /* ================================================================
+               NUMBERED SECTIONS BREAKDOWN (EXACT MOCKUP)
+               ================================================================ */
+            <div className="dark-breakdown-content">
+              {/* 01 — Academic Life */}
+              <div className="dark-breakdown-section">
+                <h3 className="dark-section-heading">01 — Academic Life</h3>
+                <div className="dark-rows-group">
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Daily Study Hours</span>
+                    <span className="dark-row-value">{formatHours(answers.study_hours_per_day)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Exam Pressure</span>
+                    <span className="dark-row-value">{formatScore(answers.exam_pressure, 10)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Academic Satisfaction</span>
+                    <span className="dark-row-value">{formatAcademicPerformance(answers.academic_performance)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Financial Stress</span>
+                    <span className="dark-row-value">{formatScore(answers.financial_stress, 10)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Family Expectation</span>
+                    <span className="dark-row-value">{formatScore(answers.family_expectation, 10)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 02 — Personal Well-being */}
+              <div className="dark-breakdown-section">
+                <h3 className="dark-section-heading">02 — Personal Well-being</h3>
+                <div className="dark-rows-group">
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Sleep Hours</span>
+                    <span className="dark-row-value">{formatHours(answers.sleep_hours)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Stress Level</span>
+                    <span className="dark-row-value">{formatScore(answers.stress_level, 10)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Anxiety Score</span>
+                    <span className="dark-row-value">{answers.anxiety_score !== undefined ? `${answers.anxiety_score} / 9.11` : "—"}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Depression Score</span>
+                    <span className="dark-row-value">{answers.depression_score !== undefined ? `${answers.depression_score} / 7.74` : "—"}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Social Support</span>
+                    <span className="dark-row-value">{formatScore(answers.social_support, 10)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 03 — Daily Lifestyle */}
+              <div className="dark-breakdown-section">
+                <h3 className="dark-section-heading">03 — Daily Lifestyle</h3>
+                <div className="dark-rows-group">
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Physical Activity</span>
+                    <span className="dark-row-value">{formatHours(answers.physical_activity)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Screen Time</span>
+                    <span className="dark-row-value">{formatHours(answers.screen_time)}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Internet Usage</span>
+                    <span className="dark-row-value">{formatHours(answers.internet_usage)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 04 — Demographics & Background */}
+              <div className="dark-breakdown-section">
+                <h3 className="dark-section-heading">04 — Demographics & Background</h3>
+                <div className="dark-rows-group">
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Student Age</span>
+                    <span className="dark-row-value">{answers.age !== undefined ? `${answers.age} Years` : "—"}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Gender</span>
+                    <span className="dark-row-value">{answers.gender || "—"}</span>
+                  </div>
+                  <div className="dark-data-row">
+                    <span className="dark-row-label">Academic Year</span>
+                    <span className="dark-row-value">{answers.academic_year !== undefined ? `Year ${answers.academic_year}` : "—"}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ================================================================
+               PERSONALIZED RECOMMENDATIONS VIEW
+               ================================================================ */
+            <div className="dark-recs-content">
+              <div className="dark-recs-intro">
+                <p>
+                  Targeted wellbeing strategies generated for your <strong>{meta.label}</strong> evaluation on {full}:
+                </p>
+              </div>
+              <div className="dark-recs-cards-list">
+                {recommendations.map((rec, idx) => (
+                  <div key={idx} className="dark-rec-card">
+                    <div className="dark-rec-card-header">
+                      <span className="dark-rec-category">{rec.category}</span>
+                      <span className={`dark-rec-priority ${rec.priorityClass}`}>
+                        {rec.priorityLabel}
+                      </span>
+                    </div>
+                    <h4 className="dark-rec-title">{rec.title}</h4>
+                    <div className="dark-rec-insight">
+                      <FiTrendingUp className="dark-rec-icon" />
+                      <span>{rec.dataInsight}</span>
+                    </div>
+                    <p className="dark-rec-advice">{rec.advice}</p>
+                    <div className="dark-rec-action-tag">{rec.actionTag}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Back Button */}
+          <div className="dark-card-footer">
+            <button
+              type="button"
+              className="dark-pill-btn"
+              onClick={() => {
+                setSelectedAssessment(null);
+                setActiveTab("breakdown");
+              }}
+            >
+              <FiArrowLeft /> Back to Assessment History
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
+  // ============================================================================
+  // VIEW 1: ASSESSMENT HISTORY LIST (EXACT TOP CARD IN MOCKUP)
+  // ============================================================================
   return (
-    <div className="history-container fade-in">
-      {/* 1. Header Row */}
-      <div className="dashboard-header-row">
-        <div>
-          <div className="dash-kicker-row">
-            <span className="result-kicker">Records Log</span>
-            <span className="dash-count-pill">
-              {assessments.length} {assessments.length === 1 ? "Record" : "Records"}
-            </span>
+    <div className="dark-history-outer-container fade-in">
+      <div className="dark-history-card">
+        {/* Header Row */}
+        <div className="dark-card-header">
+          <div className="dark-header-title-block">
+            <h2 className="dark-main-title">Assessment History</h2>
+            <p className="dark-subtitle">Your previous burnout assessments</p>
           </div>
-          <h2 className="dash-main-title">Assessment History</h2>
-          <p className="dash-subtitle">
-            Historical log of your past burnout evaluations, lifestyle metrics, and wellbeing progress.
-          </p>
+          <div className="dark-header-right-actions">
+            <button
+              type="button"
+              className="dark-icon-btn"
+              onClick={fetchHistory}
+              disabled={isLoading}
+              title="Refresh assessments"
+            >
+              <FiRefreshCw className={isLoading ? "spin" : ""} />
+            </button>
+            <button
+              type="button"
+              className="dark-pill-btn dark-pill-btn-primary"
+              onClick={onTakeAssessment}
+            >
+              <FiPlusCircle /> New Assessment
+            </button>
+          </div>
         </div>
-        <div className="dashboard-header-actions">
-          <button
-            type="button"
-            className="btn btn-secondary btn-sm"
-            onClick={fetchHistory}
-            disabled={isLoading}
-            title="Refresh history"
-          >
-            <FiRefreshCw className={isLoading ? "spin" : ""} /> Refresh
-          </button>
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={onTakeAssessment}
-          >
-            <FiPlusCircle /> New Assessment
-          </button>
-        </div>
+
+        {error && (
+          <div className="dark-alert-error">
+            <FiAlertCircle className="alert-icon" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className="dark-divider-line" />
+
+        {/* Rows List */}
+        {isLoading ? (
+          <div className="dark-loading-state">
+            <FiRefreshCw className="spin dark-spinner-icon" />
+            <p>Loading your assessment records...</p>
+          </div>
+        ) : assessments.length === 0 ? (
+          <div className="dark-empty-state">
+            <FiList className="dark-empty-icon" />
+            <h3>No previous assessments found</h3>
+            <p>Complete a quick burnout assessment to generate your personalized wellness history.</p>
+            <button
+              type="button"
+              className="dark-pill-btn dark-pill-btn-primary"
+              onClick={onTakeAssessment}
+            >
+              <FiPlusCircle /> Take Assessment
+            </button>
+          </div>
+        ) : (
+          <div className="dark-history-list">
+            {assessments.map((item) => {
+              const { date, time } = formatHistoryDate(item.createdAt);
+              const riskKey = normalizeRisk(item.burnoutLevel);
+              const meta = RISK_META[riskKey] || RISK_META.Low;
+
+              return (
+                <div key={item._id} className="dark-history-row">
+                  <div className="dark-row-date-block">
+                    <span className="dark-row-date">{date}</span>
+                    <span className="dark-row-time">{time}</span>
+                  </div>
+
+                  <div className="dark-row-actions">
+                    <span className={`dark-risk-pill ${meta.pillClass}`}>
+                      {meta.label}
+                    </span>
+                    <button
+                      type="button"
+                      className="dark-pill-btn dark-btn-breakdown"
+                      onClick={() => {
+                        setSelectedAssessment(item);
+                        setActiveTab("breakdown");
+                      }}
+                    >
+                      Full Breakdown
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-
-      {error && (
-        <div className="auth-alert error">
-          <FiAlertCircle className="alert-icon" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {/* 2. Top Summary Analytics Strip (when records exist) */}
-      {!isLoading && assessments.length > 0 && (
-        <div className="history-quick-stats-strip">
-          <div className="history-stat-box">
-            <div className="history-stat-icon-wrap icon-total">
-              <FiLayers />
-            </div>
-            <div className="history-stat-info">
-              <span className="history-stat-label">Total Evaluated</span>
-              <strong className="history-stat-value">{stats.total} Records</strong>
-            </div>
-          </div>
-
-          <div className="history-stat-box">
-            <div className="history-stat-icon-wrap icon-risk">
-              <FiShield />
-            </div>
-            <div className="history-stat-info">
-              <span className="history-stat-label">Latest Burnout Risk</span>
-              <strong className="history-stat-value">
-                {stats.latestRisk === "Low" ? (
-                  <span className="risk-text-low">Low Risk</span>
-                ) : stats.latestRisk === "Medium" ? (
-                  <span className="risk-text-med">Moderate</span>
-                ) : (
-                  <span className="risk-text-high">High Risk</span>
-                )}
-              </strong>
-            </div>
-          </div>
-
-          <div className="history-stat-box">
-            <div className="history-stat-icon-wrap icon-sleep">
-              <FiMoon />
-            </div>
-            <div className="history-stat-info">
-              <span className="history-stat-label">Average Sleep</span>
-              <strong className="history-stat-value">{stats.avgSleep} hrs/night</strong>
-            </div>
-          </div>
-
-          <div className="history-stat-box">
-            <div className="history-stat-icon-wrap icon-stress">
-              <FiHeart />
-            </div>
-            <div className="history-stat-info">
-              <span className="history-stat-label">Average Stress</span>
-              <strong className="history-stat-value">{stats.avgStress} / 10</strong>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3. Filter Segmented Control (when records exist) */}
-      {!isLoading && assessments.length > 0 && (
-        <div className="history-filters-bar">
-          <span className="history-filter-title">Filter by Risk:</span>
-          <div className="history-filter-pills">
-            <button
-              type="button"
-              className={`history-filter-btn ${riskFilter === "all" ? "active" : ""}`}
-              onClick={() => setRiskFilter("all")}
-            >
-              All Records <span className="filter-count">({stats.total})</span>
-            </button>
-            <button
-              type="button"
-              className={`history-filter-btn ${riskFilter === "Low" ? "active" : ""}`}
-              onClick={() => setRiskFilter("Low")}
-            >
-              Low Risk <span className="filter-count">({stats.low})</span>
-            </button>
-            <button
-              type="button"
-              className={`history-filter-btn ${riskFilter === "Medium" ? "active" : ""}`}
-              onClick={() => setRiskFilter("Medium")}
-            >
-              Moderate <span className="filter-count">({stats.med})</span>
-            </button>
-            <button
-              type="button"
-              className={`history-filter-btn ${riskFilter === "High" ? "active" : ""}`}
-              onClick={() => setRiskFilter("High")}
-            >
-              High Risk <span className="filter-count">({stats.high})</span>
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 4. Loading / Empty / Row-Wise List */}
-      {isLoading ? (
-        <div className="loading-state-card">
-          <FiRefreshCw className="loading-spinner spin" />
-          <p>Retrieving your assessment history...</p>
-        </div>
-      ) : assessments.length === 0 ? (
-        <div className="empty-state-card">
-          <FiList className="empty-icon" />
-          <h3>No Records Found</h3>
-          <p>
-            You have not completed any burnout evaluations yet. Complete an assessment
-            to view your historical records and personalized trajectory.
-          </p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={onTakeAssessment}
-          >
-            <FiPlusCircle /> Take First Assessment
-          </button>
-        </div>
-      ) : filteredAssessments.length === 0 ? (
-        <div className="empty-state-card">
-          <FiList className="empty-icon" />
-          <h3>No {riskFilter} Risk Records</h3>
-          <p>You have no evaluations matching the selected filter.</p>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => setRiskFilter("all")}
-          >
-            View All Records
-          </button>
-        </div>
-      ) : (
-        /* Row-Wise Modern History Records List */
-        <div className="history-rows-list">
-          {filteredAssessments.map((item) => {
-            const riskKey = normalizeRisk(item.burnoutLevel);
-            const meta = RISK_META[riskKey] || RISK_META.Low;
-            const answers = item.answers || {};
-            const recordIndex =
-              assessments.findIndex((a) => a._id === item._id) >= 0
-                ? assessments.length - assessments.findIndex((a) => a._id === item._id)
-                : 1;
-
-            return (
-              <div
-                key={item._id}
-                className={`history-row-card ${meta.accentClass}`}
-              >
-                {/* Left: Index Badge, Date, Risk Tag */}
-                <div className="history-row-left">
-                  <div className="history-row-index-badge">#{recordIndex}</div>
-                  <div className="history-row-meta">
-                    <div className="history-row-date">
-                      <FiCalendar className="row-date-icon" />
-                      <span>{formatDateTime(item.createdAt)}</span>
-                    </div>
-                    <div className="history-row-risk">
-                      <span className={`risk-category-pill ${meta.pillClass}`}>
-                        <span className="pill-dot" />
-                        {meta.label}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Center: Key Assessment Metrics (Sleep, Study, Stress, Exam) */}
-                <div className="history-row-metrics">
-                  <div className="history-row-metric-chip" title="Nightly Sleep Duration">
-                    <FiMoon className="row-metric-icon icon-sleep" />
-                    <div className="row-metric-data">
-                      <span className="row-metric-label">Sleep</span>
-                      <strong className="row-metric-val">
-                        {answers.sleep_hours !== undefined ? `${answers.sleep_hours}h` : "—"}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div className="history-row-metric-chip" title="Daily Study Hours">
-                    <FiBookOpen className="row-metric-icon icon-study" />
-                    <div className="row-metric-data">
-                      <span className="row-metric-label">Study</span>
-                      <strong className="row-metric-val">
-                        {answers.study_hours_per_day !== undefined ? `${answers.study_hours_per_day}h` : "—"}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div className="history-row-metric-chip" title="Stress Level Rating">
-                    <FiHeart className="row-metric-icon icon-stress" />
-                    <div className="row-metric-data">
-                      <span className="row-metric-label">Stress</span>
-                      <strong className="row-metric-val">
-                        {answers.stress_level !== undefined ? `${answers.stress_level}/10` : "—"}
-                      </strong>
-                    </div>
-                  </div>
-
-                  <div className="history-row-metric-chip" title="Exam Pressure Rating">
-                    <FiActivity className="row-metric-icon icon-pressure" />
-                    <div className="row-metric-data">
-                      <span className="row-metric-label">Exam</span>
-                      <strong className="row-metric-val">
-                        {answers.exam_pressure !== undefined ? `${answers.exam_pressure}/10` : "—"}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right: View Full Breakdown Action Button */}
-                <div className="history-row-right">
-                  <button
-                    type="button"
-                    className="btn btn-secondary history-row-action-btn"
-                    onClick={() => setSelectedAssessment(item)}
-                    title="View full assessment details and recommendations"
-                  >
-                    <span>View Details</span>
-                    <FiArrowRight className="btn-icon" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
     </div>
   );
 }
