@@ -481,8 +481,8 @@ function App() {
             />
           </div>
         ) : activeTab === "history" ? (
-          /* Assessment History Records View */
-          <div className="authenticated-view-wrapper">
+          /* Assessment History Records View with Wellness Study Backdrop */
+          <div className="authenticated-view-wrapper assessment-view-container">
             <History
               token={token}
               onTakeAssessment={() => {
@@ -495,132 +495,129 @@ function App() {
         ) : (
           /* Assessment View (Form or Results Report) with Wellness Study Backdrop */
           <div className="authenticated-view-wrapper assessment-view-container">
-            <div className={`form-card assessment-card ${assessmentResult ? "result-view-card" : ""}`}>
-              {assessmentResult ? (
-                <PredictionResult
-                  assessmentResult={assessmentResult}
-                  onReset={handleReset}
-                  onGoDashboard={() => setActiveTab("dashboard")}
-                  onGoHistory={() => setActiveTab("history")}
-                />
-              ) : (
-                <>
-                  <header className="card-header">
-                    <span className="project-tag">
-                      Burnout Risk Predictor (Random Forest ML)
+            {assessmentResult ? (
+              <PredictionResult
+                assessmentResult={assessmentResult}
+                onReset={handleReset}
+                onGoDashboard={() => setActiveTab("dashboard")}
+                onGoHistory={() => setActiveTab("history")}
+              />
+            ) : (
+              <div className="form-card assessment-card">
+                <header className="card-header">
+                  <span className="project-tag">
+                    Burnout Risk Predictor (Random Forest ML)
+                  </span>
+                  <h2>Burnout Risk Assessment</h2>
+                  <p className="subtitle">
+                    Answer the 16 questions across the 5 sections below to evaluate your
+                    academic routine, lifestyle, and wellbeing indicators.
+                  </p>
+                </header>
+
+                <div className="step-tracker">
+                  <div className="progress-info-row">
+                    <span className="progress-step-text">
+                      Section {currentStep} of {STEPS.length} &bull; {activeStepMeta.title}
                     </span>
-                    <h2>Burnout Risk Assessment</h2>
-                    <p className="subtitle">
-                      Answer the 16 questions across the 5 sections below to evaluate your
-                      academic routine, lifestyle, and wellbeing indicators.
-                    </p>
-                  </header>
+                    <span className="progress-badge">
+                      {Math.round(progressPercent)}% Completed
+                    </span>
+                  </div>
 
-                  <div className="step-tracker">
-                    <div className="progress-info-row">
-                      <span className="progress-step-text">
-                        Section {currentStep} of {STEPS.length} &bull; {activeStepMeta.title}
-                      </span>
-                      <span className="progress-badge">
-                        {Math.round(progressPercent)}% Completed
-                      </span>
-                    </div>
+                  <div className="progress-bar-wrapper" role="progressbar" aria-valuenow={Math.round(progressPercent)} aria-valuemin="0" aria-valuemax="100">
+                    <div
+                      className="progress-bar-fill"
+                      style={{ width: `${progressPercent}%` }}
+                    ></div>
+                  </div>
 
-                    <div className="progress-bar-wrapper" role="progressbar" aria-valuenow={Math.round(progressPercent)} aria-valuemin="0" aria-valuemax="100">
-                      <div
-                        className="progress-bar-fill"
-                        style={{ width: `${progressPercent}%` }}
-                      ></div>
-                    </div>
+                  <div className="step-pills">
+                    {STEPS.map((step) => {
+                      const isDone = currentStep > step.id;
+                      const isActive = currentStep === step.id;
 
-                    <div className="step-pills">
-                      {STEPS.map((step) => {
-                        const isDone = currentStep > step.id;
-                        const isActive = currentStep === step.id;
-
-                        return (
-                          <button
-                            type="button"
-                            key={step.id}
-                            className={`step-pill ${isActive ? "active" : ""} ${
-                              isDone ? "done" : ""
+                      return (
+                        <button
+                          type="button"
+                          key={step.id}
+                          className={`step-pill ${isActive ? "active" : ""} ${isDone ? "done" : ""
                             }`}
-                            onClick={() => handleStepClick(step.id)}
-                            title={step.title}
-                          >
-                            <span className="step-icon">
-                              {isDone ? <FiCheck /> : step.icon}
-                            </span>
-                            <span className="step-label">{step.shortTitle}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                          onClick={() => handleStepClick(step.id)}
+                          title={step.title}
+                        >
+                          <span className="step-icon">
+                            {isDone ? <FiCheck /> : step.icon}
+                          </span>
+                          <span className="step-label">{step.shortTitle}</span>
+                        </button>
+                      );
+                    })}
                   </div>
+                </div>
 
-                  <div className="step-header">
-                    <div className="step-badge-square">{activeStepMeta.icon}</div>
-                    <div>
-                      <span className="step-counter-tag">
-                        Section {currentStep} of {STEPS.length}
-                      </span>
-                      <h3>{activeStepMeta.title}</h3>
-                      <p className="step-description">{activeStepMeta.subtitle}</p>
-                    </div>
+                <div className="step-header">
+                  <div className="step-badge-square">{activeStepMeta.icon}</div>
+                  <div>
+                    <span className="step-counter-tag">
+                      Section {currentStep} of {STEPS.length}
+                    </span>
+                    <h3>{activeStepMeta.title}</h3>
+                    <p className="step-description">{activeStepMeta.subtitle}</p>
                   </div>
+                </div>
 
-                  <form
-                    onSubmit={handleSubmit}
-                    noValidate
-                    onKeyDown={(e) => {
-                      // Prevent the Enter key from triggering implicit form submission
-                      // on steps 1–4. On step 5 the submit button is explicit (type="submit")
-                      // so Enter naturally activates it, which is the intended behaviour.
-                      if (e.key === "Enter" && currentStep !== 5) {
-                        e.preventDefault();
-                      }
-                    }}
-                  >
-                    {renderCurrentStep()}
+                <form
+                  onSubmit={handleSubmit}
+                  noValidate
+                  onKeyDown={(e) => {
+                    // Prevent the Enter key from triggering implicit form submission
+                    // on steps 1–4. On step 5 the submit button is explicit (type="submit")
+                    // so Enter naturally activates it, which is the intended behaviour.
+                    if (e.key === "Enter" && currentStep !== 5) {
+                      e.preventDefault();
+                    }
+                  }}
+                >
+                  {renderCurrentStep()}
 
-                    <div className="form-actions">
-                      {currentStep > 1 ? (
-                        <button
-                          type="button"
-                          className="btn btn-secondary btn-nav-back"
-                          onClick={handleBack}
-                          disabled={isSubmitting}
-                        >
-                          &larr; Previous Section
-                        </button>
-                      ) : (
-                        <div className="nav-spacer" />
-                      )}
+                  <div className="form-actions">
+                    {currentStep > 1 ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-nav-back"
+                        onClick={handleBack}
+                        disabled={isSubmitting}
+                      >
+                        &larr; Previous Section
+                      </button>
+                    ) : (
+                      <div className="nav-spacer" />
+                    )}
 
-                      {currentStep < 5 ? (
-                        <button
-                          type="button"
-                          className="btn btn-primary btn-nav-next"
-                          onClick={handleNext}
-                        >
-                          Next Section &rarr;
-                        </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          className="btn btn-submit"
-                          disabled={isSubmitting}
-                        >
-                          {isSubmitting
-                            ? "Evaluating Assessment with ML..."
-                            : "Submit Assessment \u2192"}
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                </>
-              )}
-            </div>
+                    {currentStep < 5 ? (
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-nav-next"
+                        onClick={handleNext}
+                      >
+                        Next Section &rarr;
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        className="btn btn-submit"
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting
+                          ? "Evaluating Assessment with ML..."
+                          : "Submit Assessment \u2192"}
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
+            )}
           </div>
         )}
       </main>

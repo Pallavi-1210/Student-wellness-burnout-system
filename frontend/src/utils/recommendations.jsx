@@ -11,6 +11,83 @@ import {
   FiUsers,
 } from "react-icons/fi";
 
+export function formatHistoryDate(dateStr) {
+  if (!dateStr) {
+    const now = new Date();
+    const day = String(now.getDate()).padStart(2, "0");
+    const month = now.toLocaleDateString("en-US", { month: "long" });
+    const year = now.getFullYear();
+    const time = now.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return {
+      date: `${day} ${month} ${year}`,
+      time: time,
+      full: `${day} ${month} ${year} · ${time}`,
+    };
+  }
+  try {
+    const d = new Date(dateStr);
+    const day = String(d.getDate()).padStart(2, "0");
+    const month = d.toLocaleDateString("en-US", { month: "long" });
+    const year = d.getFullYear();
+    const time = d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return {
+      date: `${day} ${month} ${year}`,
+      time: time,
+      full: `${day} ${month} ${year} · ${time}`,
+    };
+  } catch {
+    return { date: String(dateStr), time: "", full: String(dateStr) };
+  }
+}
+
+export function normalizeRisk(level) {
+  const str = String(level || "").trim().toLowerCase();
+  if (str.includes("high")) return "High";
+  if (str.includes("med") || str.includes("mod")) return "Medium";
+  return "Low";
+}
+
+export const RISK_META = {
+  Low: {
+    label: "Low Risk",
+    pillClass: "dark-pill-low",
+  },
+  Medium: {
+    label: "Moderate Risk",
+    pillClass: "dark-pill-medium",
+  },
+  High: {
+    label: "High Risk",
+    pillClass: "dark-pill-high",
+  },
+};
+
+export function formatHours(val) {
+  if (val === undefined || val === null || val === "") return "—";
+  return `${val} Hours`;
+}
+
+export function formatScore(val, max = 10) {
+  if (val === undefined || val === null || val === "") return "—";
+  return `${val}/${max}`;
+}
+
+export function formatAcademicPerformance(val) {
+  if (val === undefined || val === null || val === "") return "—";
+  const num = Number(val);
+  if (isNaN(num)) return String(val);
+  if (num <= 10) return `${num}/10`;
+  return `${num}%`;
+}
+
 export function normalizeRiskLevel(prediction) {
   if (!prediction) return "Low";
   const raw =
