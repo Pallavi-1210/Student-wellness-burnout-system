@@ -337,7 +337,7 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
         </div>
       )}
 
-      {/* 4. Loading / Empty / Cards List */}
+      {/* 4. Loading / Empty / Row-Wise List */}
       {isLoading ? (
         <div className="loading-state-card">
           <FiRefreshCw className="loading-spinner spin" />
@@ -373,8 +373,8 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
           </button>
         </div>
       ) : (
-        /* Modern History Record Cards with Key Assessment Content */
-        <div className="history-cards-grid">
+        /* Row-Wise Modern History Records List */
+        <div className="history-rows-list">
           {filteredAssessments.map((item) => {
             const riskKey = normalizeRisk(item.burnoutLevel);
             const meta = RISK_META[riskKey] || RISK_META.Low;
@@ -387,78 +387,78 @@ function History({ token, onTakeAssessment, onGoDashboard }) {
             return (
               <div
                 key={item._id}
-                className={`history-record-card ${meta.accentClass}`}
+                className={`history-row-card ${meta.accentClass}`}
               >
-                {/* Header: Date and Index */}
-                <div className="record-card-top">
-                  <div className="record-date-wrapper">
-                    <FiCalendar className="record-date-icon" />
-                    <span className="record-date-text">{formatDateTime(item.createdAt)}</span>
+                {/* Left: Index Badge, Date, Risk Tag */}
+                <div className="history-row-left">
+                  <div className="history-row-index-badge">#{recordIndex}</div>
+                  <div className="history-row-meta">
+                    <div className="history-row-date">
+                      <FiCalendar className="row-date-icon" />
+                      <span>{formatDateTime(item.createdAt)}</span>
+                    </div>
+                    <div className="history-row-risk">
+                      <span className={`risk-category-pill ${meta.pillClass}`}>
+                        <span className="pill-dot" />
+                        {meta.label}
+                      </span>
+                    </div>
                   </div>
-                  <span className="record-index-badge">#{recordIndex}</span>
                 </div>
 
-                {/* Risk Level Badge */}
-                <div className="record-risk-row">
-                  <span className="record-risk-caption">Burnout Risk</span>
-                  <span className={`risk-category-pill ${meta.pillClass}`}>
-                    <span className="pill-dot" />
-                    {meta.label}
-                  </span>
-                </div>
-
-                {/* Key Assessment Factors: Sleep, Study, Stress, Exam */}
-                <div className="record-metrics-grid">
-                  <div className="record-metric-item" title="Nightly Sleep Duration">
-                    <FiMoon className="metric-item-icon icon-sleep" />
-                    <div className="metric-item-text">
-                      <span className="metric-item-label">Sleep</span>
-                      <strong className="metric-item-val">
+                {/* Center: Key Assessment Metrics (Sleep, Study, Stress, Exam) */}
+                <div className="history-row-metrics">
+                  <div className="history-row-metric-chip" title="Nightly Sleep Duration">
+                    <FiMoon className="row-metric-icon icon-sleep" />
+                    <div className="row-metric-data">
+                      <span className="row-metric-label">Sleep</span>
+                      <strong className="row-metric-val">
                         {answers.sleep_hours !== undefined ? `${answers.sleep_hours}h` : "—"}
                       </strong>
                     </div>
                   </div>
 
-                  <div className="record-metric-item" title="Daily Study Hours">
-                    <FiBookOpen className="metric-item-icon icon-study" />
-                    <div className="metric-item-text">
-                      <span className="metric-item-label">Study</span>
-                      <strong className="metric-item-val">
+                  <div className="history-row-metric-chip" title="Daily Study Hours">
+                    <FiBookOpen className="row-metric-icon icon-study" />
+                    <div className="row-metric-data">
+                      <span className="row-metric-label">Study</span>
+                      <strong className="row-metric-val">
                         {answers.study_hours_per_day !== undefined ? `${answers.study_hours_per_day}h` : "—"}
                       </strong>
                     </div>
                   </div>
 
-                  <div className="record-metric-item" title="Stress Rating">
-                    <FiHeart className="metric-item-icon icon-stress" />
-                    <div className="metric-item-text">
-                      <span className="metric-item-label">Stress</span>
-                      <strong className="metric-item-val">
+                  <div className="history-row-metric-chip" title="Stress Level Rating">
+                    <FiHeart className="row-metric-icon icon-stress" />
+                    <div className="row-metric-data">
+                      <span className="row-metric-label">Stress</span>
+                      <strong className="row-metric-val">
                         {answers.stress_level !== undefined ? `${answers.stress_level}/10` : "—"}
                       </strong>
                     </div>
                   </div>
 
-                  <div className="record-metric-item" title="Exam Pressure">
-                    <FiActivity className="metric-item-icon icon-pressure" />
-                    <div className="metric-item-text">
-                      <span className="metric-item-label">Exam</span>
-                      <strong className="metric-item-val">
+                  <div className="history-row-metric-chip" title="Exam Pressure Rating">
+                    <FiActivity className="row-metric-icon icon-pressure" />
+                    <div className="row-metric-data">
+                      <span className="row-metric-label">Exam</span>
+                      <strong className="row-metric-val">
                         {answers.exam_pressure !== undefined ? `${answers.exam_pressure}/10` : "—"}
                       </strong>
                     </div>
                   </div>
                 </div>
 
-                {/* Card Action */}
-                <div className="record-card-footer">
+                {/* Right: View Full Breakdown Action Button */}
+                <div className="history-row-right">
                   <button
                     type="button"
-                    className="btn-card-view-details"
+                    className="btn btn-secondary history-row-action-btn"
                     onClick={() => setSelectedAssessment(item)}
-                    title="View evaluation details"
+                    title="View full assessment details and recommendations"
                   >
-                    View Full Breakdown <FiArrowRight className="btn-icon" />
+                    <span>View Details</span>
+                    <FiArrowRight className="btn-icon" />
                   </button>
                 </div>
               </div>
